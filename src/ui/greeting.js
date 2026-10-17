@@ -209,22 +209,53 @@ export async function createGreeting(text, { reduced = false } = {}) {
 
   // ---- the saved picture ---------------------------------------------------------------------------------------------------
   /**
-   * Paint the greeting, exactly as it is on screen right now, onto a 2D canvas that already holds the rendered image.
-   * Positions come from the live DOM (so every breakpoint is honoured); drawing is scaled by W / viewport width.
+   * Measure what the picture painter needs, right now: positions, fonts and the reveal state, from the live DOM (so every
+   * breakpoint is honoured). Call it synchronously when "save picture" is pressed, BEFORE the 4K render and the asynchronous PNG
+   * encode: the lettering then belongs to the very frame that is rendered, and a rotation or resize while saving cannot misplace it.
    */
-  function paintOnto(ctx, W, H) {
-    const vw = Math.max(1, window.innerWidth);
-    const k = W / vw;
-    const rectOf = (n) => n.getBoundingClientRect();
-    const fontOf = (n, px) => { const cs = getComputedStyle(n); return `${cs.fontStyle} ${cs.fontWeight} ${px}px ${cs.fontFamily}`; };
+  function snapshot() {
+    const rect = (n) => { const r = n.getBoundingClientRect(); return { left: r.left, top: r.top, right: r.right, bottom: r.bottom, width: r.width, height: r.height }; };
+    const font = (n) => {
+      const cs = getComputedStyle(n);
+      return { style: cs.fontStyle, weight: cs.fontWeight, family: cs.fontFamily, size: parseFloat(cs.fontSize), tracking: parseFloat(cs.letterSpacing) || 0 };
+    };
+    // the wish is wrapped by the browser: its lines come from the word rectangles
+    const lines = new Map();
+    for (const w of wishWords) {
+      const r = w.getBoundingClientRect(), key = Math.round(r.top);
+      const l = lines.get(key) || { words: [], left: Infinity, right: -Infinity, bottom: r.bottom };
+      l.words.push(w.textContent); l.left = Math.min(l.left, r.left); l.right = Math.max(l.right, r.right);
+      lines.set(key, l);
+    }
+    const mid = (r) => (r.left + r.right) / 2;
+    const whisperRect = rect(whisper), titleRect = rect(titleEl), nameRect = rect(nameEl);
+    return {
+      vw: Math.max(1, window.innerWidth),
+      P: { ...P },
+      whisper: whisperText ? { cx: mid(whisperRect), bottom: whisperRect.bottom, font: font(whisper) } : null,
+      title: { cx: mid(titleRect), baseline: rect(titleBase).bottom, font: font(titleEl) },
+      name: { rect: nameRect, cx: mid(nameRect), baseline: rect(nameBase).bottom, font: font(nameEl) },
+      ornament: { rect: rect(orn) },
+      wish: wishText ? { font: font(wishEl), lines: [...lines.entries()].sort((a, b) => a[0] - b[0]).map(([, l]) => ({ text: l.words.join(' '), cx: (l.left + l.right) / 2, bottom: l.bottom })) } : null,
+    };
+  }
+
+  /**
+   * Paint the greeting onto a 2D canvas that already holds the rendered image. `snap` comes from snapshot() (taken now when
+   * omitted). Drawing is scaled by W / viewport width, so the card has the same composition at any resolution.
+   */
+  function paintOnto(ctx, W, H, snap = snapshot()) {
+    const k = W / snap.vw;
+    const S = snap.P;
+    const fontOf = (f, px) => `${f.style} ${f.weight} ${px}px ${f.family}`;
     ctx.save();
     ctx.textBaseline = 'alphabetic';
 
     // scrim
-    if (P.scrim > 0.01) {
+    if (S.scrim > 0.01) {
       const g = ctx.createLinearGradient(0, 0, 0, H * 0.52);
-      g.addColorStop(0, `rgba(34,22,44,${(0.46 * P.scrim).toFixed(3)})`);
-      g.addColorStop(0.45, `rgba(34,22,44,${(0.27 * P.scrim).toFixed(3)})`);
+      g.addColorStop(0, `rgba(34,22,44,${(0.46 * S.scrim).toFixed(3)})`);
+      g.addColorStop(0.45, `rgba(34,22,44,${(0.27 * S.scrim).toFixed(3)})`);
       g.addColorStop(1, 'rgba(34,22,44,0)');
       ctx.fillStyle = g;
       ctx.fillRect(0, 0, W, H * 0.52);
@@ -236,47 +267,44 @@ export async function createGreeting(text, { reduced = false } = {}) {
     const descentOf = (px) => { const m = ctx.measureText('Hg'); return m.fontBoundingBoxDescent != null ? m.fontBoundingBoxDescent : px * 0.24; };
 
     // whisper
-    if (whisperText && P.whisper > 0.01) {
-      const cs = getComputedStyle(whisper), fs = parseFloat(cs.fontSize) * k, tr = (parseFloat(cs.letterSpacing) || 0) * k;
-      ctx.font = fontOf(whisper, fs);
-      const r = rectOf(whisper), base = r.bottom * k - descentOf(fs);
-      ink(ease(P.whisper)); softShadow();
-      drawTracked(ctx, whisperText.toUpperCase(), W / 2, base, tr);
+    if (snap.whisper && S.whisper > 0.01) {
+      const f = snap.whisper.font, fs = f.size * k;
+      ctx.font = fontOf(f, fs);
+      ink(ease(S.whisper)); softShadow();
+      drawTracked(ctx, whisperText.toUpperCase(), snap.whisper.cx * k, snap.whisper.bottom * k - descentOf(fs), f.tracking * k);
       noShadow();
     }
 
     // headline
-    if (P.title > 0.01) {
-      const cs = getComputedStyle(titleEl), fs = parseFloat(cs.fontSize) * k, tr = (parseFloat(cs.letterSpacing) || 0) * k;
-      ctx.font = fontOf(titleEl, fs);
-      const base = rectOf(titleBase).bottom * k;
-      ink(ease(P.title)); softShadow();
-      drawTracked(ctx, headline.toUpperCase(), W / 2, base, tr);
+    if (S.title > 0.01) {
+      const f = snap.title.font, fs = f.size * k;
+      ctx.font = fontOf(f, fs);
+      ink(ease(S.title)); softShadow();
+      drawTracked(ctx, headline.toUpperCase(), snap.title.cx * k, snap.title.baseline * k, f.tracking * k);
       noShadow();
     }
 
     // name (gradient + glow + contact shadow, same recipe as the CSS)
-    if (P.name > 0.01) {
-      const cs = getComputedStyle(nameEl), fs = parseFloat(cs.fontSize) * k;
-      ctx.font = fontOf(nameEl, fs);
+    if (S.name > 0.01) {
+      const f = snap.name.font, fs = f.size * k, r = snap.name.rect, cx = snap.name.cx * k, base = snap.name.baseline * k;
+      ctx.font = fontOf(f, fs);
       ctx.textAlign = 'center';
-      const r = rectOf(nameEl), base = rectOf(nameBase).bottom * k;
       const g = ctx.createLinearGradient(0, r.top * k, 0, r.bottom * k);
       g.addColorStop(0, '#fffaf1'); g.addColorStop(0.46, '#ffe3b4'); g.addColorStop(1, '#f3b762');
-      ctx.globalAlpha = ease(P.name);
+      ctx.globalAlpha = ease(S.name);
       ctx.fillStyle = g;
       ctx.shadowColor = 'rgba(255,196,130,0.45)'; ctx.shadowBlur = 0.14 * fs; ctx.shadowOffsetY = 0;
-      ctx.fillText(name, W / 2, base);
+      ctx.fillText(name, cx, base);
       ctx.shadowColor = 'rgba(40,18,28,0.5)'; ctx.shadowBlur = 0.06 * fs; ctx.shadowOffsetY = 0.02 * fs;
-      ctx.fillText(name, W / 2, base);
+      ctx.fillText(name, cx, base);
       noShadow();
-      ctx.fillText(name, W / 2, base);
+      ctx.fillText(name, cx, base);
       ctx.textAlign = 'start';
     }
 
     // ornament
-    if (P.ornament > 0.01) {
-      const r = rectOf(orn), oe = ease(P.ornament);
+    if (S.ornament > 0.01) {
+      const r = snap.ornament.rect, oe = ease(S.ornament);
       const cx = ((r.left + r.right) / 2) * k, cy = ((r.top + r.bottom) / 2) * k, hw = ((r.width / 2) * oe) * k;
       const g = ctx.createLinearGradient(cx - hw, 0, cx + hw, 0);
       g.addColorStop(0, 'rgba(255,226,176,0)'); g.addColorStop(0.22, 'rgba(255,226,176,0.95)');
@@ -292,22 +320,13 @@ export async function createGreeting(text, { reduced = false } = {}) {
     }
 
     // wish: one DOM line at a time (the browser already balanced and wrapped it)
-    if (wishText && P.wish > 0.01) {
-      const cs = getComputedStyle(wishEl), fs = parseFloat(cs.fontSize) * k;
-      ctx.font = fontOf(wishEl, fs);
-      const lines = new Map();
-      for (const w of wishWords) {
-        const r = rectOf(w), key = Math.round(r.top);
-        const l = lines.get(key) || { words: [], left: Infinity, right: -Infinity, bottom: r.bottom };
-        l.words.push(w.textContent); l.left = Math.min(l.left, r.left); l.right = Math.max(l.right, r.right);
-        lines.set(key, l);
-      }
-      ink(ease(P.wish)); softShadow();
+    if (snap.wish && S.wish > 0.01) {
+      const fs = snap.wish.font.size * k;
+      ctx.font = fontOf(snap.wish.font, fs);
+      ink(ease(S.wish)); softShadow();
       ctx.textAlign = 'center';
       const desc = descentOf(fs);
-      for (const l of [...lines.entries()].sort((a, b) => a[0] - b[0]).map((e) => e[1])) {
-        ctx.fillText(l.words.join(' '), ((l.left + l.right) / 2) * k, l.bottom * k - desc);
-      }
+      for (const l of snap.wish.lines) ctx.fillText(l.text, l.cx * k, l.bottom * k - desc);
       noShadow();
       ctx.textAlign = 'start';
     }
@@ -318,6 +337,7 @@ export async function createGreeting(text, { reduced = false } = {}) {
     el: root,
     ready: fontsReady,
     update,
+    snapshot,
     paintOnto,
     /** latest reveal values (0..1) - for tests */
     state: () => ({ ...P, stage: root.dataset.stage || 'none' }),

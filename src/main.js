@@ -59,10 +59,22 @@ function setProgress(p, text) {
 function showFatal(err) {
   console.error(err);
   const loader = $('loader');
-  if (loader) {
-    loader.classList.remove('done');
-    loader.innerHTML = `<p style="max-width:34ch;text-align:center;line-height:1.6;text-transform:none;letter-spacing:0">The lotus couldn't start on this device.<br><small style="opacity:.7">${String(err && err.message || err).slice(0, 160)}</small><br><br><a style="color:#f08cb4" href="${location.pathname}?quality=low">Try low quality</a></p>`;
-  }
+  if (!loader) return;
+  loader.classList.remove('done');
+  // Built from nodes, not markup: error and shader-log text can contain "<".
+  const p = document.createElement('p');
+  p.style.cssText = 'max-width:34ch;text-align:center;line-height:1.6;text-transform:none;letter-spacing:0';
+  const small = document.createElement('small');
+  small.style.opacity = '.7';
+  small.textContent = String((err && err.message) || err).slice(0, 160);
+  const retry = document.createElement('a');
+  retry.style.color = '#f08cb4';
+  retry.textContent = 'Try low quality';
+  const u = new URL(location.href);               // keeps the page (?route=) and every other parameter
+  u.searchParams.set('quality', 'low');
+  retry.href = u.toString();
+  p.append("The lotus couldn't start on this device.", document.createElement('br'), small, document.createElement('br'), document.createElement('br'), retry);
+  loader.replaceChildren(p);
 }
 
 async function boot() {

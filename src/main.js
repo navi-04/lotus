@@ -205,7 +205,7 @@ async function boot() {
   if (mods.petals) {
     setProgress(0.86, 'Checking the petals…');
     try {
-      petalReport = await mods.petals.settle({ renderer, scene, anchor: stem ? stem.headAnchor : mods.petals.group, compile: compileAll, log: ctx.log });
+      petalReport = await mods.petals.settle({ renderer, scene, camera, anchor: stem ? stem.headAnchor : mods.petals.group, compile: compileAll, log: ctx.log });
       if (petalReport.tried.length > 1 || !petalReport.ok) console.warn('Petals: ', JSON.stringify(petalReport.tried), '-> using', petalReport.id);
     } catch (e) { console.warn('Petal check failed:', e); }
   }
@@ -281,8 +281,9 @@ async function boot() {
   const limit = (p) => { try { return gl.getParameter(p); } catch (e) { return '?'; } };
   const gpuInfo = () => {
     const p = mods.petals;
+    const w = p ? p.watchState() : null;
     const petals = !p ? 'petals: hidden'
-      : `petals: ${p.rung} ${p.info.NU}x${p.info.NS}, ${(p.info.vertices / 1000).toFixed(0)}k vertices\n  probe ${petalReport ? petalReport.tried.map((t) => `${t.id}=${t.px}px`).join(' > ') : 'did not run'}${petalReport && petalReport.forced ? ' (pinned)' : ''}`;
+      : `petals: ${p.rung} ${p.info.NU}x${p.info.NS}, ${(p.info.vertices / 1000).toFixed(0)}k vertices\n  probe ${petalReport ? petalReport.tried.map((t) => `${t.id}=${t.px}px`).join(' > ') : 'did not run'}${petalReport && petalReport.forced ? ' (pinned)' : ''}\n  live frame: ${w.verdict}${w.verdict === 'watching' ? ` ${w.frames}/${w.need}` : ''}`;
     return `${quality.gpu.renderer || 'unknown GPU'}\nvarying ${limit(gl.MAX_VARYING_VECTORS)}  vs ${limit(gl.MAX_VERTEX_UNIFORM_VECTORS)}  fs ${limit(gl.MAX_FRAGMENT_UNIFORM_VECTORS)}  vtf ${limit(gl.MAX_VERTEX_TEXTURE_IMAGE_UNITS)}  attribs ${limit(gl.MAX_VERTEX_ATTRIBS)}\n${petals}\nshader errors: ${shaderErrors.length ? shaderErrors.join(' | ') : 'none'}`;
   };
   let last = performance.now();
@@ -299,6 +300,7 @@ async function boot() {
     ui.update();
     renderer.info.reset();
     pipeline.render(frame);
+    if (mods.petals) mods.petals.watchFrame(frame);        // the live-frame check on the petals (lotus/petalWatch.js)
 
     // gentle hint when even the lowest resolution can't hold frame rate
     const inf = pipeline.info();

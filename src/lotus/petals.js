@@ -11,13 +11,14 @@ import { buildPetalParams } from './petalShape.js';
 import { createGpuVariant } from './petalGpu.js';
 import { createCpuVariant } from './petalCpu.js';
 import { createPetalProbe } from './petalProbe.js';
+import { createPetalWatch } from './petalWatch.js';
 import { RUNGS, MIN_PIXELS, parseForced, readStart, writeRung, settleLadder } from './petalLadder.js';
 import { local } from '../core/storage.js';
 
 /**
  * @param {import('../main.js').Ctx} ctx
  * @returns {{group: Group, update(frame): void, dispose(): void, params: any[], mesh: any, rung: string, info: any,
- *            settle(env: object): Promise<object>}}
+ *            settle(env: object): Promise<object>, watchFrame(frame: any): void, watchState(): object}}
  */
 export function createPetals(ctx) {
   const mobile = !!(ctx.quality && ctx.quality.isMobile);
@@ -35,17 +36,32 @@ export function createPetals(ctx) {
   };
   const raw = ctx.params && ctx.params.raw;
   const forced = parseForced(raw && raw.get('petals'));                                          // ?petals=tex|inst|instlite|cpu
-  const broken = new Set(((raw && raw.get('breakpetals')) || '').split(',').map((s) => s.trim()).filter(Boolean));   // test hook, see mount()
+  const list = (k) => new Set(((raw && raw.get(k)) || '').split(',').map((s) => s.trim()).filter(Boolean));
+  const broken = list('breakpetals');       // test hooks, see mount(): ?breakpetals= fails the startup probe for those rungs,
+  const brokenLive = list('breaklive');     //                          ?breaklive= passes the probe but nothing is drawn in the live frame
 
   const group = new Group();
   group.name = 'petals';
   let variant = null;
   let lastFrame = null;
+  let watch = null;
+
+  /** hand a mesh to the live-frame watch (if there is one) and apply the live-frame test hook, which must wrap what the watch installs */
+  function track(mesh, id) {
+    if (watch) watch.attach(mesh);
+    if (!brokenLive.has(id)) return;
+    const before = mesh.onBeforeRender;
+    mesh.onBeforeRender = function (r, s, cam, ...rest) {
+      before.call(this, r, s, cam, ...rest);
+      this.geometry.setDrawRange(0, cam.layers.isEnabled(0) ? 0 : Infinity);    // submitted, but nothing is drawn for the real cameras
+    };
+  }
 
   function mount(id) {
     if (variant) { group.remove(variant.mesh); variant.dispose(); variant = null; }
     variant = make[id]();
-    if (broken.has(id)) variant.mesh.visible = false;      // test hook: pretend this rung's draw is dropped, to exercise the ladder
+    if (broken.has(id)) variant.mesh.visible = false;      // pretend this rung's draw is dropped, to exercise the ladder
+    track(variant.mesh, id);
     group.add(variant.mesh);
     api.mesh = variant.mesh;
     api.rung = id;
@@ -55,11 +71,14 @@ export function createPetals(ctx) {
 
   /**
    * Prove the petals draw here, and swap in a simpler rung if they do not. Call once the scene is assembled, before the first frame shows.
-   * @param {{renderer: any, scene: any, anchor?: any, compile?: () => Promise<void>, log?: (...a: any[]) => void}} env
+   * @param {{renderer: any, scene: any, camera?: any, anchor?: any, compile?: () => Promise<void>, log?: (...a: any[]) => void}} env
    */
-  async function settle({ renderer, scene, anchor, compile = async () => {}, log = () => {} }) {
+  async function settle({ renderer, scene, camera, anchor, compile = async () => {}, log = () => {} }) {
     const probe = createPetalProbe(renderer, scene);
     try {
+      // from here on the live frames are watched too (petalWatch.js); the probe below may swap the mesh, which re-attaches the watch
+      if (camera) watch = createPetalWatch({ renderer, camera, anchor: anchor || group });
+      if (watch && variant) track(variant.mesh, api.rung);
       const measure = async (id) => {
         await compile();
         const t0 = performance.now();
@@ -86,11 +105,23 @@ export function createPetals(ctx) {
     variant.update(frame);
   }
 
+  /** call after the picture is rendered: if the petals are in view and no pixel of them reaches the screen, move one rung down, live */
+  function watchFrame(frame) {
+    if (!watch || watch.update(frame) !== 'blind' || forced) return;     // a pinned rung is reported, never swapped
+    const i = RUNGS.indexOf(api.rung);
+    if (i < 0 || i >= RUNGS.length - 1) return;                          // already on the last resort: nothing simpler to try
+    console.warn(`Petals: nothing of '${api.rung}' reached the screen in the live frame - switching to '${RUNGS[i + 1]}'`);
+    mount(RUNGS[i + 1]);                                                  // re-attaches the watch to the new mesh
+    writeRung(local, api.rung);
+  }
+  const watchState = () => (watch ? { ...watch.stats } : { verdict: 'off', frames: 0, positives: 0, need: 0 });
+
   function dispose() {
+    if (watch) watch.detach();
     if (variant) { group.remove(variant.mesh); variant.dispose(); variant = null; }
   }
 
-  const api = { group, update, dispose, params, mesh: null, rung: null, info: null, settle };
+  const api = { group, update, dispose, params, mesh: null, rung: null, info: null, settle, watchFrame, watchState };
   mount(forced || RUNGS[readStart(local)]);
   return api;
 }

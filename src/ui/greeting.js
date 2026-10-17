@@ -198,7 +198,7 @@ export async function createGreeting(text, { reduced = false } = {}) {
     P.name = win(b, REVEAL.name);
     P.ornament = win(b, REVEAL.ornament);
     P.wish = win(b, REVEAL.wish);
-    P.scrim = Math.min(1, ease(Math.max(P.title, P.name)) + 0.6 * P.whisper);
+    P.scrim = Math.min(1, ease(Math.max(P.title, P.name)) + 0.95 * P.whisper);       // the dedication needs the veil too: it sits on the brightest haze
     let changed = false;
     for (let i = 0; i < 5; i++) {
       const v = i === 0 ? P.whisper : i === 1 ? P.title : i === 2 ? P.name : i === 3 ? P.ornament : P.wish;
@@ -256,19 +256,25 @@ export async function createGreeting(text, { reduced = false } = {}) {
     ctx.save();
     ctx.textBaseline = 'alphabetic';
 
-    // scrim
+    // scrim (the .g-scrim gradient of the stylesheet)
     if (S.scrim > 0.01) {
-      const g = ctx.createLinearGradient(0, 0, 0, H * 0.52);
-      g.addColorStop(0, `rgba(34,22,44,${(0.46 * S.scrim).toFixed(3)})`);
-      g.addColorStop(0.45, `rgba(34,22,44,${(0.27 * S.scrim).toFixed(3)})`);
-      g.addColorStop(1, 'rgba(34,22,44,0)');
+      const g = ctx.createLinearGradient(0, 0, 0, H * 0.6);
+      for (const [at, a] of [[0, 0.52], [0.55, 0.5], [0.8, 0.34]]) g.addColorStop(at, `rgba(44,26,44,${(a * S.scrim).toFixed(3)})`);
+      g.addColorStop(1, 'rgba(44,26,44,0)');
       ctx.fillStyle = g;
-      ctx.fillRect(0, 0, W, H * 0.52);
+      ctx.fillRect(0, 0, W, H * 0.6);
     }
 
     const ink = (alpha) => { ctx.globalAlpha = alpha; ctx.fillStyle = '#fff6ea'; };
     const softShadow = () => { ctx.shadowColor = 'rgba(30,14,24,0.55)'; ctx.shadowBlur = 14 * k; ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 1 * k; };
     const noShadow = () => { ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0; ctx.shadowOffsetY = 0; };
+    // the stylesheet gives the small lines a wide halo plus a tight contact shadow; canvas allows one shadow per draw, so draw twice
+    const twoShadows = (draw, wide, wideAlpha, tightAlpha) => {
+      ctx.shadowOffsetX = 0;
+      ctx.shadowColor = `rgba(30,14,24,${wideAlpha})`; ctx.shadowBlur = wide * k; ctx.shadowOffsetY = 0; draw();
+      ctx.shadowColor = `rgba(30,14,24,${tightAlpha})`; ctx.shadowBlur = 3 * k; ctx.shadowOffsetY = 1 * k; draw();
+      noShadow();
+    };
     const metrics = (px) => {
       const m = ctx.measureText('Hg');
       return { asc: m.fontBoundingBoxAscent != null ? m.fontBoundingBoxAscent : px * 0.8, desc: m.fontBoundingBoxDescent != null ? m.fontBoundingBoxDescent : px * 0.24 };
@@ -279,9 +285,8 @@ export async function createGreeting(text, { reduced = false } = {}) {
     if (snap.whisper && S.whisper > 0.01) {
       const f = snap.whisper.font, fs = f.size * k;
       ctx.font = fontOf(f, fs);
-      ink(ease(S.whisper)); softShadow();
-      drawTracked(ctx, whisperText.toUpperCase(), snap.whisper.cx * k, snap.whisper.bottom * k - descentOf(fs), f.tracking * k);
-      noShadow();
+      ink(ease(S.whisper));
+      twoShadows(() => drawTracked(ctx, whisperText.toUpperCase(), snap.whisper.cx * k, snap.whisper.bottom * k - descentOf(fs), f.tracking * k), 18, 0.9, 0.6);
     }
 
     // headline: every letter with the opacity and offset it has on screen, so a picture saved mid-reveal shows the same half-written line
@@ -309,11 +314,11 @@ export async function createGreeting(text, { reduced = false } = {}) {
         c.font = fontOf(f, fs);
         c.textAlign = 'center';
         const g = c.createLinearGradient(0, r.top * k, 0, r.bottom * k);
-        g.addColorStop(0, '#fffaf1'); g.addColorStop(0.46, '#ffe3b4'); g.addColorStop(1, '#f3b762');
+        g.addColorStop(0.228, '#fffaf1'); g.addColorStop(0.577, '#ffe3b4'); g.addColorStop(0.987, '#ffd08a');     // = the .g-name gradient
         c.fillStyle = g;
         c.shadowColor = 'rgba(255,196,130,0.45)'; c.shadowBlur = 0.14 * fs; c.shadowOffsetY = 0;
         c.fillText(name, cx, base);
-        c.shadowColor = 'rgba(40,18,28,0.5)'; c.shadowBlur = 0.06 * fs; c.shadowOffsetY = 0.02 * fs;
+        c.shadowColor = 'rgba(40,18,28,0.62)'; c.shadowBlur = 0.06 * fs; c.shadowOffsetY = 0.02 * fs;
         c.fillText(name, cx, base);
         c.shadowColor = 'transparent'; c.shadowBlur = 0; c.shadowOffsetY = 0;
         c.fillText(name, cx, base);
@@ -361,11 +366,10 @@ export async function createGreeting(text, { reduced = false } = {}) {
     if (snap.wish && S.wish > 0.01) {
       const fs = snap.wish.font.size * k;
       ctx.font = fontOf(snap.wish.font, fs);
-      ink(ease(S.wish)); softShadow();
+      ink(ease(S.wish));
       ctx.textAlign = 'center';
       const desc = descentOf(fs);
-      for (const l of snap.wish.lines) ctx.fillText(l.text, l.cx * k, l.bottom * k - desc);
-      noShadow();
+      twoShadows(() => { for (const l of snap.wish.lines) ctx.fillText(l.text, l.cx * k, l.bottom * k - desc); }, 16, 0.85, 0.65);
       ctx.textAlign = 'start';
     }
     ctx.restore();

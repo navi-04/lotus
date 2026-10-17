@@ -60,3 +60,30 @@ body { position: fixed; inset: 0; }
 #title.show { opacity: 1; transform: none; }
 #title h1 { margin: 0; font: 600 20px/1.1 'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif; letter-spacing: 0.04em; }
 #title p { margin: 3px 0 0; font-style: italic; color: var(--ink-dim); font-size: 13px; font-family: 'Iowan Old Style', Palatino, Georgia, serif; }
+
+/* ---- control bar ---- */
+#bar {
+  position: fixed; left: 50%; bottom: calc(14px + var(--safe-b)); z-index: 20; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 4px; padding: 6px; width: min(560px, calc(100vw - 20px - var(--safe-l) - var(--safe-r)));
+  background: var(--glass); border: 1px solid var(--glass-line); border-radius: 999px;
+  -webkit-backdrop-filter: blur(16px) saturate(1.3); backdrop-filter: blur(16px) saturate(1.3);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.35);
+  transition: opacity 0.5s ease, transform 0.5s ease; touch-action: manipulation;
+}
+#bar.hidden { opacity: 0; transform: translate(-50%, 14px); pointer-events: none; }
+.ib {
+  flex: none; width: 44px; height: 44px; border: 0; border-radius: 50%; background: transparent; color: var(--ink); cursor: pointer;
+  display: grid; place-items: center; transition: background 0.2s ease, transform 0.15s ease;
+}
+.ib:hover { background: rgba(255, 255, 255, 0.10); }
+.ib:active { transform: scale(0.92); background: rgba(255, 255, 255, 0.16); }
+.ib:focus-visible, #menu button:focus-visible, .scrub input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.ib svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.ib svg .f { fill: currentColor; stroke: none; }
+.scrub { flex: 1 1 auto; min-width: 60px; display: block; padding: 0 8px; }
+.scrub input { width: 100%; height: 44px; margin: 0; background: transparent; appearance: none; -webkit-appearance: none; cursor: pointer; touch-action: none; }
+.scrub input::-webkit-slider-runnable-track { height: 4px; border-radius: 4px; background: linear-gradient(90deg, var(--accent) var(--p, 0%), rgba(255, 255, 255, 0.22) var(--p, 0%)); }
+.scrub input::-moz-range-track { height: 4px; border-radius: 4px; background: rgba(255, 255, 255, 0.22); }
+.scrub input::-moz-range-progress { height: 4px; border-radius: 4px; background: var(--accent); }
+.scrub input::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 18px; height: 18px; margin-top: -7px; border-radius: 50%; background: #fff; box-shadow: 0 1px 8px rgba(0, 0, 0, 0.5); border: 0; }
+.scrub input::-moz-range-thumb { width: 18px; height: 18px; border-radius: 50%; background: #fff; border: 0; box-shadow: 0 1px 8px rgba(0, 0, 0, 0.5); }

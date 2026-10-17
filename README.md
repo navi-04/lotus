@@ -118,3 +118,14 @@ node tools/sheet.mjs --out sheet.png --cols 3 a.png b.png c.png
 ```
 
 Shots land in `shots/` (git-ignored).
+
+## Browser support
+
+Needs WebGL2 (all current Chrome, Edge, Firefox and Safari 15+, iOS 15+). Honors `prefers-reduced-motion`, pauses when the tab is hidden, recovers from WebGL context loss, and respects phone safe areas.
+
+## Troubleshooting
+
+- *Choppy on a phone:* Ultra is the default, and the resolution already scales itself down under load; for more headroom open the Quality menu and pick **Medium** / **Low** (or **Auto** to match the device).
+- *"Quality was lowered after a problem on this device":* the crash guard stepped down a tier after a lost GPU context / a tab killed while loading. **Quality › Ultra** restores it.
+- *Black screen / "couldn't start":* the device lacks WebGL2 — try `?quality=low`, a newer browser, or enable hardware acceleration.
+- *The page loads but looks flat:* make sure it isn't running with `?hide=post`.

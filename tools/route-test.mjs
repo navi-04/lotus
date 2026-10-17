@@ -42,7 +42,10 @@ async function open(url, { viewport = { width: 1100, height: 700, deviceScaleFac
   const page = await br.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(String(e).slice(0, 200)));
-  page.on('console', (m) => { if (m.type() === 'error' && !/favicon/i.test(m.text())) errors.push(m.text().slice(0, 200)); });
+  // the browser logs a console error for a document that arrives with a 404 status - which is how a static host serves 404.html on purpose;
+  // only that report about the page's own URL is ignored, a missing script, font or image still counts
+  const ownNotFound = (m) => /status of 404/.test(m.text()) && m.location().url === url;
+  page.on('console', (m) => { if (m.type() === 'error' && !/favicon/i.test(m.text()) && !ownNotFound(m)) errors.push(m.text().slice(0, 200)); });
   await page.setViewport({ ...viewport, isMobile: mobile, hasTouch: mobile });
   // every page starts from a clean profile (pages share one browser), then gets its own preset, then the app boots
   if (clear) await page.evaluateOnNewDocument(`try { localStorage.clear(); sessionStorage.clear(); } catch (e) {}`);

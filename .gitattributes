@@ -1,0 +1,6 @@
+# One line-ending convention for every platform (the project is edited on Windows, built on Linux CI).
+* text=auto eol=lf
+
+# Binary assets: never touch.
+*.woff2 binary
+*.png binary

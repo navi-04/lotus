@@ -13,9 +13,10 @@ npm run dev            # http://localhost:5173  (also served on your LAN)
 
 - **On a phone:** with the phone on the same Wi-Fi, open the *Network* URL that `npm run dev` prints (e.g. `http://192.168.x.x:5173`). If it doesn't load, allow Node.js through the Windows firewall for private networks.
 - **Production build:** `npm run build` → static site in `dist/` (`npm run preview` serves it).
-- **One double-clickable file:** `npm run build:single` → `dist-single/index.html` (≈830 KB, everything inlined, works from `file://`).
+- **One double-clickable file:** `npm run build:single` → `dist-single/index.html` (≈970 KB with the birthday fonts, everything inlined, works from `file://`).
+- **Live on GitHub Pages:** every push to `main` deploys — see [Deploy to GitHub Pages](#deploy-to-github-pages). Checks before you push: `npm run check` (unit checks, then a build).
 
-> Don't open the source `index.html` by double-click — browsers block ES modules from `file://`. Use the dev server, or the single-file build.
+> Don't open the source `index.html` — or the pages in `dist/` — by double-click: browsers block ES modules from `file://`, and the page will say "Still loading…". Use the dev server, `npm run preview`, a web host, or the single-file build.
 
 ## Pages (slash routes)
 
@@ -27,11 +28,28 @@ One app, several pages. The route only decides what is layered on top of the sam
 | `/nivashini` | the same bloom as a **birthday card**: a whisper (*A lotus for Nivashini*) as the stalk rises, then *HAPPY BIRTHDAY* appears letter by letter as the petals open, the name is written in gold script, and a short wish fades in while golden pollen-light lifts off the flower. The camera lowers the picture slightly (a lens shift) to leave sky for the lettering. |
 
 - **Dev:** `http://localhost:5173/nivashini` (on a phone: the *Network* URL + `/nivashini`). Any path works with the dev server; unknown paths show the home page.
-- **Build:** `npm run build` writes a real file per route — `dist/index.html`, `dist/home/index.html`, `dist/nivashini/index.html` — so it works on any static host (Netlify, GitHub Pages, S3, nginx …) with **no rewrite rules**; `/nivashini` simply redirects to `/nivashini/` like every static host does. `npm run preview` behaves the same.
-- **Double-click:** `npm run build:single` writes `dist-single/index.html` (home) **and** `dist-single/nivashini.html` — the same self-contained file, the file name selects the page. `index.html?route=nivashini` also works.
-- **The camera icon on `/nivashini` saves the finished card** (render + lettering) as `happy-birthday-nivashini.png`, up to 4K.
-- **Change the words / add a person:** edit `src/app/routes.js` — each route has its `greeting` (`whisper`, `headline`, `name`, `wish`). Copy the `nivashini` entry, change the id and the words, and `npm run build` emits the new page. Timing of each line is `REVEAL` at the top of `src/ui/greeting.js`.
-- Screen readers get the greeting as a normal heading; with *reduce motion* on, the lettering cross-fades instead of writing itself.
+- **Build:** `npm run build` writes a real file per route — `dist/index.html`, `dist/home/index.html`, `dist/nivashini/index.html` — so it works on any static host (Netlify, GitHub Pages, S3, nginx …) with **no rewrite rules**; `/nivashini` simply redirects to `/nivashini/` like every static host does. `npm run preview` does the same (it also matches the URL case-insensitively, which a real Linux host will not).
+- **Double-click:** `npm run build:single` writes `dist-single/index.html` (home) **and** `dist-single/nivashini.html` — the same self-contained file with that page's title. Each file is pinned to its page by a meta tag, so renaming one does not change what it shows; `index.html?route=nivashini` switches a copy.
+- **The camera icon on `/nivashini` saves the finished card** (render + lettering) as `happy-birthday-nivashini.png`, up to 4K. Saved mid-reveal, it shows exactly the half-written screen; the picture is measured the instant the button is pressed, so a rotation while it renders cannot move the text.
+- **Change the words / add a person:** edit `src/app/routes.js` — each page has a `greeting` (`whisper`, `headline`, `name`, `wish`). Copy the `nivashini` entry in `PAGES`, change its **key** (it is the page id and the URL: lowercase letters, digits, dashes) and the words, and `npm run build` emits the new page; the build refuses a table with a bad key or missing text. Long and two-word names, and long wishes, shrink to fit the screen. Timing of each line is `REVEAL` at the top of `src/ui/greeting.js`.
+- Screen readers get the whole greeting (heading, dedication and wish) as ordinary text; with *reduce motion* on, the lettering cross-fades instead of writing itself, the framing starts in its final position and the sparkles drift at a third of the speed.
+
+## Deploy to GitHub Pages
+
+The repository publishes itself. `.github/workflows/deploy.yml` runs on every push to `main`: the Node-only unit checks, `npm run build`, then the official Pages actions.
+
+1. **One time:** *Settings → Pages → Build and deployment → Source: **GitHub Actions***.
+2. Push to `main`. The run (Actions tab) ends with the site URL.
+
+It is a project page, so the pages live under the repository name:
+
+| URL | What you get |
+|---|---|
+| `https://navi-04.github.io/lotus/` | the plain bloom |
+| `https://navi-04.github.io/lotus/home/` | the plain bloom |
+| `https://navi-04.github.io/lotus/nivashini/` | the birthday card (`/nivashini` without the slash redirects) |
+
+Everything is relative (`base: './'`), so the same build also works under any sub-path or a custom domain. On GitHub Actions the build also writes `404.html` with a `<base>` pointing at the site root, so a mistyped link shows the lotus instead of GitHub's error page; set `PAGES_BASE=/` for a custom domain at the root. To test the live site: `npm run test:routes -- --base https://navi-04.github.io/lotus --static`.
 
 ## Controls
 
@@ -64,9 +82,9 @@ The camera starts low beside the bud, rises and pulls back as the petals open (a
 
 **Everything is maximum by default: every page starts on Ultra, on every device** (override with the Quality menu or `?quality=`; *Auto* in the menu = match the device instead). Because Ultra is the default, three safety nets keep weak hardware usable without anyone touching a setting:
 
-- **Adaptive resolution** measures a short window of frames and jumps the pixel ratio proportionally to the overload (a phone that starts at 3× settles in a few seconds), so the picture stays smooth, just a little softer. A toast suggests the Quality menu if it still can't keep up.
-- **Software renderers** (no real GPU: SwiftShader, llvmpipe …) start on Low.
-- **Crash guard:** if the GPU context is lost, or a previous load died before rendering its first frames (tab killed for memory), the *next* load steps one tier down (up to three) and says so. Picking a tier in the Quality menu clears it; an explicit `?quality=` in the URL always wins.
+- **Adaptive resolution** (`src/render/adaptive.js`, simulated in `tools/adaptive-sim.mjs`). After a 1.5 s warm-up (first-use shader links are not the device's speed) it measures 0.7 s windows without their slowest 20 %, and after two slow windows in a row jumps the pixel ratio proportionally to the overload, so a phone that starts at 3× settles in seconds. A descent that bought nothing (a 30 Hz battery-saver cap, a CPU-bound stall) is undone; on a 60 Hz screen it probes one step back up now and then (20 s, doubling to 4 min after a failed probe); a saved picture never counts. Phones start at 2×, and the Ultra floor is 0.75× so even a 1× screen can adapt. A toast suggests the next tier down when even the floor is too slow.
+- **Software renderers** (no real GPU: SwiftShader, llvmpipe …) start on Low — the *default* only: a tier chosen in the menu or in `?quality=` is honoured.
+- **Crash guard** (`src/core/crashGuard.js`, unit-tested). Every boot holds a Web Lock until its first frames are out, so a later boot can tell a tab that died (killed for memory, driver reset) from another window that is still loading. A dead boot, or a lost-and-restored GPU context while the tab was visible, steps the *next* load down one tier (up to three) and says so; the step-down expires after a week, and reloading after context loss is limited to twice a minute. Picking a tier in the menu clears it; an explicit `?quality=` always wins. With blocked storage a menu pick travels in the URL.
 
 | Tier | What changes | Measured on an Intel Iris Xe laptop GPU, 720p, DPR 1 |
 |---|---|---|
@@ -81,23 +99,24 @@ Reproduce with `npm run perf -- --url "http://localhost:5173/?quality=high&still
 
 ## URL parameters
 
-`?quality=low|medium|high|ultra|auto` · `?route=home|nivashini` (pick the page when the path can't, e.g. `file://`) · `?bloom=0..1` (freeze the bloom stage) · `?rise=0..1` · `?t=seconds` · `?still=1` (fully deterministic frame) · `?cam=default|close|top|side|low|x,y,z,tx,ty,tz[,fov]` · `?cine=1` (use the cinematic camera on a frozen frame) · `?dpr=1.5` · `?hide=leaves,water,stamens,petals,pod,stem,env,post` · `?tm=neutral|agx|aces` · `?glow=0.3` · `?exposure=1` · `?seed=123` · `?debug=1` (stats overlay).
+`?quality=low|medium|high|ultra|auto` · `?route=home|nivashini` (pick the page when the path can't, e.g. `file://`) · `?bloom=0..1` (freeze the bloom stage) · `?rise=0..1` · `?t=seconds` · `?still=1` (fully deterministic frame) · `?cam=default|close|top|side|low|wide|portrait|x,y,z,tx,ty,tz[,fov]` · `?cine=1` (use the cinematic camera on a frozen frame) · `?dpr=1.5` (pins the pixel ratio and turns adaptation off) · `?hide=leaves,water,stamens,petals,pod,stem,env,post,sparkles,greeting` · `?tm=neutral|agx|aces` · `?glow=0.3` · `?exposure=1` · `?seed=123` · `?debug=1` (stats overlay).
 
 ## Project layout
 
 ```
 index.html, src/style.css          shell, loader, UI styling
 src/main.js                        boot sequence, frame loop, UI actions, QA hooks
-src/core/                          constants, quality tiers, timeline, params, seeded rng, shader patching, compact noise
+src/core/                          constants, quality tiers, crash guard, guarded storage, timeline, params, seeded rng, shader patching, compact noise
 src/lotus/                         petals (+ petalSkin, petalContract), pod, stamens, stem, leaves
 src/world/                         environment (sky, IBL, sun, fog), envBackdrop, envSky, water, sparkles (birthday pages)
-src/render/                        renderer + post pipeline (adaptive resolution, capture)
+src/render/                        renderer, post pipeline (capture), adaptive resolution controller
 src/app/cameraRig.js               cinematic camera + orbit hand-over (+ lens shift)
 src/app/routes.js                  the page table: /, /home, /nivashini ... (shared with the build)
 src/ui/controls.js                 control bar
 src/ui/greeting.js                 birthday lettering: reveal driven by the timeline, saved-picture painter
 src/assets/fonts/                  Allura + Cormorant Garamond (SIL OFL, bundled - see README.txt there)
-tools/                             headless-browser dev tools (below) + vite-routes.mjs (per-route pages at build time)
+tools/                             headless-browser dev tools and tests (below) + vite-routes.mjs (per-route pages at build time)
+.github/workflows/deploy.yml       checks, build and deploy to GitHub Pages
 ```
 
 Everything is deterministic: the same seed gives the same pond, and `?still=1` makes a frame reproducible.
@@ -108,9 +127,12 @@ Everything is deterministic: the same seed gives the same pond, and `?still=1` m
 npm run shot -- --url "http://localhost:5173/?still=1&bloom=0.5&cam=close" --out shots/a.png
 npm run qa   -- --preset bloom            # bloom 0..1 filmstrip + contact sheet (also: cams, rise, quality, mobile, timeline, all)
 npm run perf -- --url "..." --uncapped    # frame-time probe
+npm run test:unit                          # Node-only, no GPU: crash guard, resolution controller simulation, routes + page generator, quality tiers (what CI runs)
+npm run check                              # test:unit, then a production build
 npm run test:ui                            # end-to-end UI/touch/capture checks (add --url http://localhost:5173/nivashini for the birthday page)
-npm run test:routes                        # every route variant, ultra-by-default, quality overrides + safety nets, greeting reveal, saved card
+npm run test:routes                        # 108 browser checks: every route variant, ultra-by-default, quality overrides + safety nets, greeting reveal, saved card, long names
 npm run test:routes -- --base http://localhost:4173 --single dist-single   # same against `npm run preview` and the double-click files
+npm run test:routes -- --base https://navi-04.github.io/lotus --static     # the live GitHub Pages site
 npm run card -- --url http://localhost:5173/nivashini --out shots/card.png # press "save picture" and keep the PNG a visitor would get
 npm run qa -- --preset birthday           # /nivashini at t = 3 ... 37 s (whisper, letters, name, wish) + contact sheet
 npm run qa -- --preset birthday-views     # the finished card on desktop, phone portrait + landscape, tablet, ultrawide
@@ -126,6 +148,7 @@ Needs WebGL2 (all current Chrome, Edge, Firefox and Safari 15+, iOS 15+). Honors
 ## Troubleshooting
 
 - *Choppy on a phone:* Ultra is the default, and the resolution already scales itself down under load; for more headroom open the Quality menu and pick **Medium** / **Low** (or **Auto** to match the device).
-- *"Quality was lowered after a problem on this device":* the crash guard stepped down a tier after a lost GPU context / a tab killed while loading. **Quality › Ultra** restores it.
+- *"Quality was lowered after a problem on this device":* the crash guard stepped down a tier after a lost GPU context / a tab killed while loading. **Quality › Ultra** restores it (it also expires by itself after a week). *"No graphics card found, so this runs on Low":* a software renderer; **Quality › Ultra** overrides it.
+- *"Still loading…" for more than 20 seconds:* the page cannot start. Opened from disk (`file://`) the module script is blocked — serve it (`npm run dev` / `npm run preview` / a web host) or use `dist-single/`.
 - *Black screen / "couldn't start":* the device lacks WebGL2 — try `?quality=low`, a newer browser, or enable hardware acceleration.
 - *The page loads but looks flat:* make sure it isn't running with `?hide=post`.

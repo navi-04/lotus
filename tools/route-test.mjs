@@ -168,6 +168,68 @@ for (const [name, p, preload, want] of QCASES) {
   await page.close();
 }
 
+// ---- 3a. smoothness: frame pacing, the refresh-rate probe, the phone profile, effect shedding ---------------------------------------
+{
+  const smooth = (page) => page.evaluate(() => {
+    const L = window.__lotus, i = L.pipeline.info();
+    return {
+      pace: i.pacing, refreshProbe: window.__lotusRefresh, tier: L.quality.tier, lod: L.quality.lod, shadowMap: L.quality.shadowMap, reflection: L.quality.reflection, dof: L.quality.dof,
+      dprStart: L.quality.dprStart, shed: L.shedder.level, canShed: L.shedder.canShed, shadowAuto: L.renderer.shadowMap.autoUpdate, stored: localStorage.getItem('lotus.shed'),
+      hud: document.getElementById('hud').textContent, hudHidden: document.getElementById('hud').hidden,
+    };
+  });
+  {
+    const { page, errors } = await open(`${base}/?debug=1`);
+    await sleep(900);
+    const s = await smooth(page);
+    check('smooth: the page measured the display refresh before the app started (a number between 6 and 40 ms)', typeof s.refreshProbe === 'number' && s.refreshProbe > 6 && s.refreshProbe < 40, String(s.refreshProbe));
+    check('smooth: desktop Ultra keeps the full costs (lod 1.4, 4096 shadows, 0.75 reflection, depth of field), nothing eased', s.lod === 1.4 && s.shadowMap === 4096 && s.reflection === 0.75 && s.dof && s.shed === 0 && s.shadowAuto === true, JSON.stringify({ lod: s.lod, sh: s.shadowMap, refl: s.reflection, shed: s.shed }));
+    check('smooth: the governor reports a display and a pace (pace never below the display base)', s.pace.pace >= s.pace.paceBase && s.pace.paceMax >= s.pace.paceBase && s.pace.refreshMs > 6 && s.pace.refreshMs < 40, JSON.stringify(s.pace));
+    check('smooth: ?debug=1 shows the display, the pace and the eased level', !s.hudHidden && /display \d+ Hz|display unthrottled/.test(s.hud) && /pace \d/.test(s.hud) && /eased 0/.test(s.hud), s.hud.split('\n').slice(0, 2).join(' / '));
+    check('smooth: no console errors', errors.length === 0, errors.slice(0, 2).join(' | '));
+    await page.close();
+  }
+  {
+    const { page } = await open(`${base}/`, { viewport: { width: 390, height: 844, deviceScaleFactor: 3 }, mobile: true });
+    const s = await smooth(page);
+    check('smooth: a phone is still Ultra with every effect, but its fixed costs are sized for the screen', s.tier === 'ultra' && s.dof && s.lod === 0.85 && s.shadowMap === 1024 && s.reflection === 0.4, JSON.stringify({ tier: s.tier, lod: s.lod, sh: s.shadowMap, refl: s.reflection }));
+    check('smooth: a phone starts at 1.5x', s.dprStart === 1.5, String(s.dprStart));
+    await page.close();
+  }
+  {
+    const { page } = await open(`${base}/?pace=0`);
+    const s = await smooth(page);
+    check('smooth: ?pace=0 turns frame pacing off (pace 1, no slower pace on offer)', s.pace.pace === 1 && s.pace.paceMax === 1, JSON.stringify(s.pace));
+    await page.close();
+  }
+  {
+    const { page } = await open(`${base}/?shed=1&debug=1`);
+    await sleep(900);
+    const s = await smooth(page);
+    check('smooth: ?shed=1 pins the first easing level: shadows refreshed on a schedule, no auto-shedding, nothing stored', s.shed === 1 && s.shadowAuto === false && /eased 1 \(pinned\)/.test(s.hud) && s.stored === null, JSON.stringify({ shed: s.shed, auto: s.shadowAuto, stored: s.stored }));
+    await page.close();
+  }
+  {
+    const { page } = await open(`${base}/`, { preload: `try { localStorage.setItem('lotus.shed', '2@' + Date.now()); } catch (e) {}` });
+    const s = await smooth(page);
+    check('smooth: a remembered level 2 is applied from the first frame (and the governor knows it can shed no more)', s.shed === 2 && s.canShed === false && s.shadowAuto === false, JSON.stringify({ shed: s.shed, canShed: s.canShed }));
+    await page.close();
+  }
+  {
+    const { page } = await open(`${base}/`, { preload: `try { localStorage.setItem('lotus.shed', '2@' + (Date.now() - 8 * 864e5)); } catch (e) {}` });
+    const s = await smooth(page);
+    check('smooth: a note older than a week is ignored', s.shed === 0 && s.canShed === true && s.shadowAuto === true, String(s.shed));
+    await page.close();
+  }
+  {
+    const { page, errors } = await open(`${base}/?shed=2&rise=1&bloom=0.6`);
+    await sleep(1500);
+    const s = await smooth(page);
+    check('smooth: eased level 2 renders without errors and the flower is still in the picture', s.shed === 2 && errors.length === 0 && s.dof, errors.slice(0, 2).join(' | '));
+    await page.close();
+  }
+}
+
 // ---- 3b. the petals really draw: the startup probe, every way of drawing them, and the ladder that swaps one for another ------------
 // (the "?breakpetals=" test hook makes a rung's draw get dropped, like a phone GPU that refuses it; see src/lotus/petals.js)
 {
@@ -208,7 +270,7 @@ for (const [name, p, preload, want] of QCASES) {
   {
     const { page } = await open(`${base}/`, { viewport: { width: 390, height: 844, deviceScaleFactor: 3 }, mobile: true });
     const s = await petalInfo(page);
-    check('petals: a phone gets a lighter mesh (68 x 30, under 65k vertices, 16-bit indices)', s.info.NU === 68 && s.info.NS === 30 && s.info.vertices < 65535 && s.rep.ok, JSON.stringify(s.info));
+    check('petals: a phone gets a lighter mesh (58 x 26, under 65k vertices, 16-bit indices)', s.info.NU === 58 && s.info.NS === 26 && s.info.vertices < 65535 && s.rep.ok, JSON.stringify(s.info));
     await page.close();
   }
 

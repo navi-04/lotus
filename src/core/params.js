@@ -29,7 +29,7 @@ export function getParams(search = typeof location !== 'undefined' ? location.se
     t: num('t'),
     freeze: flag('freeze') || flag('still') || q.has('bloom') || q.has('t'),
     still: flag('still'),
-    quality: (q.get('quality') || '').toLowerCase() || null,
+    quality: (q.get('quality') || '').trim().toLowerCase() || null,
     cam: q.get('cam') || null,
     hide,
     dpr: num('dpr'),

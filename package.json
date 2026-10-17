@@ -1,0 +1,28 @@
+{
+  "name": "lotus-bloom",
+  "private": true,
+  "version": "1.0.0",
+  "description": "A photoreal, fully procedural blooming sacred lotus (Nelumbo nucifera) in real time with three.js - mobile friendly, zero external assets.",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "build:single": "vite build --config vite.single.config.js",
+    "preview": "vite preview --host",
+    "shot": "node tools/shot.mjs",
+    "qa": "node tools/qa.mjs",
+    "perf": "node tools/perf.mjs",
+    "test:ui": "node tools/ui-test.mjs",
+    "test:routes": "node tools/route-test.mjs",
+    "card": "node tools/card.mjs"
+  },
+  "dependencies": {
+    "postprocessing": "^6.39.5",
+    "three": "^0.186.1"
+  },
+  "devDependencies": {
+    "puppeteer-core": "^24.43.1",
+    "vite": "^8.3.4",
+    "vite-plugin-singlefile": "^2.3.3"
+  }
+}

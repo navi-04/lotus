@@ -52,7 +52,10 @@ export async function createGreeting(text, { reduced = false } = {}) {
 
   // ---- build -------------------------------------------------------------------------------------------------------------
   root.replaceChildren();
+  // Screen readers get the whole card as ordinary text; the visual lines below are aria-hidden because they are split into letters.
+  root.setAttribute('aria-label', `${headline} ${name}`.trim());
   const sr = el('h1', 'g-sr', `${headline} ${name}`.trim());
+  const srLines = [whisperText, wishText].filter(Boolean).map((t) => el('p', 'g-sr', t));
   const scrim = el('div', 'g-scrim');
   const stack = el('div', 'g-stack');
   scrim.setAttribute('aria-hidden', 'true');
@@ -90,7 +93,7 @@ export async function createGreeting(text, { reduced = false } = {}) {
   if (whisperText) stack.appendChild(whisper);
   stack.append(titleEl, nameEl, orn);
   if (wishText) stack.appendChild(wishEl);
-  root.append(sr, scrim, stack);
+  root.append(sr, ...srLines, scrim, stack);
   root.hidden = false;
 
   // ---- fonts: the text is laid out (and measured for the saved picture) with the real faces -------------------------------

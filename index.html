@@ -59,6 +59,23 @@
 
 <noscript><p class="fatal">This animation needs JavaScript and WebGL2.</p></noscript>
 <script>
+  // How fast does this display refresh? Measured while the page is still idle (the app is downloading and has done no heavy work yet):
+  // once the scene is drawing, a busy 120 Hz screen looks like a 60 Hz one. The app's frame governor reads window.__lotusRefresh (ms).
+  (function () {
+    var gaps = [], last = 0, frames = 0;
+    function step(now) {
+      if (last) gaps.push(now - last);
+      last = now;
+      if (gaps.length >= 12) {
+        var s = gaps.slice().sort(function (a, b) { return a - b; });
+        window.__lotusRefresh = s[Math.floor(s.length * 0.15)];
+      }
+      if (++frames < 90 && !window.__LOTUS_READY__) requestAnimationFrame(step);
+    }
+    requestAnimationFrame(step);
+  })();
+</script>
+<script>
   // If the app never starts (files opened from disk instead of a web server, a blocked script) say so instead of spinning forever.
   setTimeout(function () {
     var text = document.getElementById('loader-text'), loader = document.getElementById('loader');

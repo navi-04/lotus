@@ -101,6 +101,7 @@ export function createPipeline(ctx) {
   });
 
   let composer = null, dof = null, bloom = null, exposureFx = null, grade = null, tone = null;
+  const dofBaseScale = quality.tier === 'ultra' ? 0.5 : 0.4;
   const hdr = renderer.extensions.has('EXT_color_buffer_float') || renderer.extensions.has('EXT_color_buffer_half_float');
   if (usePost) try {
     renderer.toneMapping = NoToneMapping;
@@ -117,8 +118,8 @@ export function createPipeline(ctx) {
     const vignette = new VignetteEffect({ offset: 0.32, darkness: 0.5 });
 
     const fx = [exposureFx];
-    if (quality.dof || q.get('dof') === '1') {
-      dof = new DepthOfFieldEffect(ctx.camera, { focusDistance: 8, focusRange: 2.2, bokehScale: 2.6, resolutionScale: quality.tier === 'ultra' ? 0.5 : 0.4 });
+    if (quality.dof) {
+      dof = new DepthOfFieldEffect(ctx.camera, { focusDistance: 8, focusRange: 2.2, bokehScale: 2.6, resolutionScale: dofBaseScale });
       dof.target = ctx.frame.focus;
       fx.push(dof);
     }
@@ -134,11 +135,15 @@ export function createPipeline(ctx) {
   // ---- adaptive resolution -----------------------------------------------------------------------------------------
   // Ultra is the default on every device, so a weak GPU or a phone starts far above what it can sustain. The logic (proportional
   // drop, restore when pixels are not the bottleneck, cautious recovery on 60 Hz) lives in ./adaptive.js so it can be simulated.
+  // It also paces the frames (never above ~60 fps, an even 30 when 60 cannot be held) - ?pace=0 turns that off (benchmarks).
   const adaptive = createAdaptive({
     dprMin: quality.dprMin,
     getCap: () => Math.min(window.devicePixelRatio || 1, quality.dprMax),
     getDpr: () => dpr,
     setDpr: (d) => setDpr(d),
+    pacing: params.pace !== 0,
+    refreshHint: typeof window.__lotusRefresh === 'number' ? window.__lotusRefresh : null,
+    canShed: () => !!(ctx.shedder && ctx.shedder.canShed),
   });
 
   function applySize() {
@@ -156,6 +161,11 @@ export function createPipeline(ctx) {
 
   let lastT = performance.now();
   let capturing = false;
+  /** call on every animation frame: false = this display refresh is skipped (the governor is pacing the frames) */
+  function shouldRender(now) {
+    if (quality.fixedDpr || document.hidden) return true;      // a pinned pixel ratio turns the governor off; a hidden tab is not measured
+    return adaptive.tick(now);
+  }
   /** one frame, no bookkeeping (capture() draws through this as well) */
   function draw(frame) {
     if (composer) {
@@ -208,8 +218,13 @@ export function createPipeline(ctx) {
     }
   }
 
-  function info() { return { dpr, frameMs: adaptive.ema, post: !!composer, dof: !!dof, msaa: quality.msaa, hdr }; }
+  /** how sharp the depth-of-field blur is computed, as a share of its tier resolution (core/shed.js): a cheap one-time resize of its buffers */
+  function setDofScale(mult) {
+    if (dof) dof.resolution.scale = dofBaseScale * Math.min(1, Math.max(0.1, mult));
+  }
+
+  function info() { return { dpr, frameMs: adaptive.ema, post: !!composer, dof: !!dof, msaa: quality.msaa, hdr, pacing: adaptive.info(), exhausted: adaptive.exhausted }; }
   function dispose() { if (composer) composer.dispose(); }
 
-  return { render, setSize, setDpr, getDpr, capture, info, dispose, composer };
+  return { render, shouldRender, setSize, setDpr, getDpr, setDofScale, capture, info, dispose, composer };
 }

@@ -202,8 +202,13 @@ export function createWater(ctx) {
   const bufSize = new Vector2();
   const clipBias = 0.003;
 
+  // the frame governor can ask for the reflection to be refreshed less often and drawn smaller (core/shed.js)
+  let reflEvery = 1, reflScale = 1, reflTick = 0, reflDrawn = false;
+  const setReflection = ({ every = 1, scale = 1 } = {}) => { reflEvery = Math.max(1, every | 0); reflScale = Math.min(1, Math.max(0.1, scale)); };
+
   if (useRT) {
     mesh.onBeforeRender = function (rend, scene, camera) {
+      if (reflDrawn && reflEvery > 1 && ++reflTick % reflEvery !== 0) return;      // keep the last reflection (and its matrix) for this frame
       reflWorldPos.setFromMatrixPosition(mesh.matrixWorld);
       camWorldPos.setFromMatrixPosition(camera.matrixWorld);
       rotMat.extractRotation(mesh.matrixWorld);
@@ -213,8 +218,8 @@ export function createWater(ctx) {
 
       // keep the RT proportional to the drawing buffer
       rend.getDrawingBufferSize(bufSize);
-      const w = Math.max(64, Math.floor(bufSize.x * quality.reflection));
-      const h = Math.max(64, Math.floor(bufSize.y * quality.reflection));
+      const w = Math.max(64, Math.floor(bufSize.x * quality.reflection * reflScale));
+      const h = Math.max(64, Math.floor(bufSize.y * quality.reflection * reflScale));
       if (w !== rt.width || h !== rt.height) { rt.setSize(w, h); uniforms.uTexel.value.set(1 / w, 1 / h); }
 
       view.reflect(normal).negate().add(reflWorldPos);
@@ -261,6 +266,7 @@ export function createWater(ctx) {
       const vp = camera.viewport;
       if (vp !== undefined) rend.state.viewport(vp);
       mesh.visible = true;
+      reflDrawn = true;
     };
   }
 
@@ -287,5 +293,5 @@ export function createWater(ctx) {
   function dispose() {
     geometry.dispose(); material.dispose(); if (rt) rt.dispose();
   }
-  return { group: mesh, update, dispose, mesh };
+  return { group: mesh, update, dispose, mesh, setReflection };
 }

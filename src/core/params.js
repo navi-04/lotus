@@ -12,6 +12,10 @@
  *   ?dpr=1.5        force pixel ratio (disables adaptive scaling)
  *   ?debug=1        stats overlay + verbose logging
  *   ?seed=123       override the scene seed
+ *   ?pace=0         no frame pacing (render on every display refresh; the resolution is still adapted) - for benchmarks
+ *   ?shed=0|1|2     pin how many effects are eased (see core/shed.js); without it the governor decides and remembers
+ *   ?shadow=1024    shadow map size in px (0 = shadows off)   ?refl=0.5  water reflection scale (0 = off)
+ *   ?lod=0.8        geometry density multiplier              ?dof=0|1   depth of field off / on   (each overrides the tier's value)
  */
 export function getParams(search = typeof location !== 'undefined' ? location.search : '') {
   const q = new URLSearchParams(search);
@@ -35,5 +39,11 @@ export function getParams(search = typeof location !== 'undefined' ? location.se
     dpr: num('dpr'),
     debug: flag('debug'),
     seed: num('seed'),
+    pace: num('pace'),
+    shed: num('shed'),
+    shadow: num('shadow'),
+    refl: num('refl'),
+    lod: num('lod'),
+    dof: q.has('dof') ? flag('dof') : null,
   };
 }

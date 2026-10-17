@@ -18,7 +18,8 @@ uniform float uTime;
 uniform vec3 uFocus;        // visual centre of the flower (live, shared with the frame)
 uniform float uRadius;      // current flower radius
 uniform vec2 uWind;
-uniform float uPixelScale;  // pixels per world unit at distance 1
+uniform float uPixelScale;  // pixels per world unit at distance 1 (set per render pass, see onBeforeRender)
+uniform float uMaxPoint;    // largest point size in pixels for the target in use
 uniform float uGain;
 varying vec3 vCol;
 varying float vA;
@@ -60,7 +61,7 @@ void main() {
   vCol = (c < 0.58 ? gold : c < 0.86 ? cream : rose) * 1.7;      // HDR: the bloom pass gives the brightest glints a soft halo
 
   float size = (0.022 + 0.05 * aSeed.z * aSeed.z) * mix(1.0, 2.2, step(0.78, aSeed.w)) * (0.7 + 0.3 * tw);
-  gl_PointSize = clamp(size * uPixelScale / dist, 2.0, 56.0);
+  gl_PointSize = clamp(size * uPixelScale / dist, uMaxPoint / 28.0, uMaxPoint);
 }
 `;
 
@@ -98,7 +99,7 @@ export function createSparkles(ctx) {
     transparent: true, depthWrite: true, depthTest: true, blending: AdditiveBlending, fog: false,
     uniforms: {
       uTime: { value: 0 }, uFocus: { value: ctx.frame.focus }, uRadius: { value: 1.2 }, uWind: { value: new Vector2() },
-      uPixelScale: { value: 600 }, uGain: { value: 0 },
+      uPixelScale: { value: 600 }, uMaxPoint: { value: 56 }, uGain: { value: 0 },
     },
     vertexShader: VERT, fragmentShader: FRAG,
   });
@@ -111,22 +112,30 @@ export function createSparkles(ctx) {
   group.name = 'sparkles';
   group.add(points);
 
+  // The same points are drawn into the main buffer, the water-reflection target (a fraction of its size) and the 4K capture. The pixel
+  // scale and the size cap are therefore set per pass from the render target actually in use, so a sparkle keeps the same size
+  // relative to the frame in all of them (a fixed device-pixel cap made glints smaller on 3x phones and in saved pictures).
   const size = new Vector2();
+  points.onBeforeRender = (renderer, scene, camera) => {
+    const target = renderer.getRenderTarget();
+    const h = target ? target.height : renderer.getDrawingBufferSize(size).y;
+    mat.uniforms.uPixelScale.value = h / (2 * Math.tan((camera.fov * Math.PI) / 360));
+    mat.uniforms.uMaxPoint.value = (56 * h) / 720;
+  };
+
+  // reduced motion: the swirl still drifts, at a third of the speed
+  const reduced = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+
   /** @param {ReturnType<typeof import('../core/timeline.js').createFrame>} frame */
   function update(frame) {
     const gain = smoothstep(0.66, 0.97, frame.bloom);
     points.visible = gain > 0.002;
     if (!points.visible) return;
     const u = mat.uniforms;
-    u.uTime.value = frame.time;
+    u.uTime.value = frame.time * (reduced ? 0.3 : 1);
     u.uGain.value = gain;
     u.uRadius.value = Math.max(0.6, frame.flowerRadius || 1.2);
     u.uWind.value.set(frame.wind.x, frame.wind.z);
-    const cam = frame.camera;
-    if (cam) {
-      ctx.renderer.getDrawingBufferSize(size);
-      u.uPixelScale.value = size.y / (2 * Math.tan((cam.fov * Math.PI) / 360));
-    }
   }
   function dispose() { geo.dispose(); mat.dispose(); }
   return { group, update, dispose, points };

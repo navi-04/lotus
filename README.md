@@ -59,3 +59,22 @@ The camera starts low beside the bud, rises and pulls back as the petals open (a
 | **Water** | Mirrored-camera planar reflection (half-float HDR), Fresnel, scrolling wave normals, expanding ripple rings, ambient raindrops, sun glitter, noise-driven ground mist, darkening under pads. |
 | **Sky & light** | HDR dawn sky with sun halo and cirrus; the same sky is baked to an image-based light; shadow-casting sun with a texel-snapped frustum that follows the flower; haze, distant tree line, bokeh discs, sunlit pollen motes. |
 | **Post** | Half-float HDR + MSAA, bloom, depth of field focused on the flower, Khronos *Neutral* tone mapping, split-tone grade, film grain + dither. |
+
+## Quality tiers & performance
+
+**Everything is maximum by default: every page starts on Ultra, on every device** (override with the Quality menu or `?quality=`; *Auto* in the menu = match the device instead). Because Ultra is the default, three safety nets keep weak hardware usable without anyone touching a setting:
+
+- **Adaptive resolution** measures a short window of frames and jumps the pixel ratio proportionally to the overload (a phone that starts at 3× settles in a few seconds), so the picture stays smooth, just a little softer. A toast suggests the Quality menu if it still can't keep up.
+- **Software renderers** (no real GPU: SwiftShader, llvmpipe …) start on Low.
+- **Crash guard:** if the GPU context is lost, or a previous load died before rendering its first frames (tab killed for memory), the *next* load steps one tier down (up to three) and says so. Picking a tier in the Quality menu clears it; an explicit `?quality=` in the URL always wins.
+
+| Tier | What changes | Measured on an Intel Iris Xe laptop GPU, 720p, DPR 1 |
+|---|---|---|
+| Low | no planar reflection, no shadows, SMAA, fewer instances | ≈ 135 fps |
+| Medium | 0.3× reflection, 1k shadows, SMAA | ≈ 100 fps |
+| High | MSAA 2×, 2k shadows, 0.5× reflection, depth of field | ≈ 50 fps |
+| **Ultra** (default) | 4k shadows, 0.75× reflection, MSAA 4×, denser meshes, up to DPR 3 | ≈ 33 fps (≈ 31 fps on `/nivashini`, which adds sparkles + lettering) |
+
+On phones MSAA is replaced by SMAA (multisampled half-float targets are unreliable on mobile GPUs).
+
+Reproduce with `npm run perf -- --url "http://localhost:5173/?quality=high&still=1&bloom=1&dpr=1" --uncapped`.

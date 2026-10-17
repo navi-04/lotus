@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#14110f" />
+<meta name="color-scheme" content="dark" />
+<meta name="description" content="A photoreal, fully procedural blooming sacred lotus (Nelumbo nucifera) rendered in real time with three.js." />
+<!-- Page identity. "auto" = decide from the URL path (dev server, SPA hosts). The build writes the real id into dist/<route>/index.html. -->
+<meta name="lotus-route" content="auto" />
+<meta property="og:type" content="website" />
+<meta property="og:title" content="Lotus — a blooming" />
+<meta property="og:description" content="A photoreal, fully procedural blooming sacred lotus (Nelumbo nucifera) rendered in real time with three.js." />
+<meta name="twitter:card" content="summary" />
+<meta name="twitter:title" content="Lotus — a blooming" />
+<meta name="twitter:description" content="A photoreal, fully procedural blooming sacred lotus (Nelumbo nucifera) rendered in real time with three.js." />
+<title>Lotus — a blooming</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ctext y='52' font-size='52'%3E🪷%3C/text%3E%3C/svg%3E" />
+<link rel="stylesheet" href="/src/style.css" />
+</head>
+<body>
+<canvas id="scene" aria-label="A lotus flower blooming on a misty pond" role="img"></canvas>
+
+<!-- filled in by src/ui/greeting.js on routes that have a greeting (e.g. /nivashini) -->
+<section id="greeting" aria-label="Birthday greeting" hidden></section>
+
+<div id="loader" role="status" aria-live="polite">
+  <div class="lotus-spin" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+  <p id="loader-text">Preparing the pond…</p>
+  <div class="loader-bar" aria-hidden="true"><b id="loader-fill"></b></div>
+</div>
+
+<header id="title" aria-hidden="true">
+  <h1>Sacred Lotus</h1>
+  <p>Nelumbo nucifera</p>
+</header>
+
+<pre id="hud" hidden></pre>
+<div id="toast" role="status" aria-live="polite"></div>
+
+<nav id="bar" aria-label="Playback and view controls">
+  <button id="btn-play" class="ib" type="button" aria-label="Pause" title="Pause (Space)"></button>
+  <button id="btn-replay" class="ib" type="button" aria-label="Replay the bloom" title="Replay (R)"></button>
+  <label class="scrub" aria-label="Bloom timeline">
+    <input id="scrub" type="range" min="0" max="1000" value="0" step="1" />
+  </label>
+  <button id="btn-quality" class="ib" type="button" aria-label="Quality" title="Quality (Q)" aria-haspopup="true" aria-expanded="false"></button>
+  <button id="btn-capture" class="ib" type="button" aria-label="Save a 4K picture" title="Save picture (C)"></button>
+  <button id="btn-full" class="ib" type="button" aria-label="Full screen" title="Full screen (F)"></button>
+  <div id="menu" role="menu" hidden>
+    <p>Quality</p>
+    <button type="button" role="menuitemradio" data-q="ultra">Ultra <small>maximum · default</small></button>
+    <button type="button" role="menuitemradio" data-q="high">High</button>
+    <button type="button" role="menuitemradio" data-q="medium">Medium</button>
+    <button type="button" role="menuitemradio" data-q="low">Low</button>
+    <button type="button" role="menuitemradio" data-q="auto">Auto <small>match this device</small></button>
+  </div>
+</nav>
+
+<noscript><p class="fatal">This animation needs JavaScript and WebGL2.</p></noscript>
+<script type="module" src="/src/main.js"></script>
+</body>
+</html>

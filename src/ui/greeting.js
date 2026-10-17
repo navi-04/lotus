@@ -1,0 +1,306 @@
+/**
+ * Birthday greeting overlay (routes with kind 'birthday', e.g. /nivashini).
+ *
+ *   A LOTUS FOR NIVASHINI        <- whisper: fades in as the stalk rises, gone before the petals move
+ *   H A P P Y   B I R T H D A Y  <- letters appear one by one as the flower opens
+ *            Nivashini           <- script, written left to right with a soft golden glow
+ *        ──────── ◆ ────────
+ *   May this year unfold like a lotus, one petal at a time.
+ *
+ * Everything is a pure function of the shared frame (`frame.bloom` / `frame.rise`), so play, pause, the scrubber, replay and
+ * the `?t=` stills all show exactly the right state - there are no timers or CSS animations to fall out of sync. Plain DOM text
+ * on top of the canvas keeps it razor sharp at any pixel ratio and readable by screen readers (an offscreen <h1>).
+ * `paintOnto()` draws the same layout onto a 2D canvas, so the "save picture" button produces a finished birthday card.
+ *
+ * Fonts (bundled, OFL): Cormorant Garamond for the small caps + wish, Allura for the name. See src/assets/fonts/README.txt.
+ */
+import { clamp01 } from '../core/timeline.js';
+
+/** When each part appears. `rise`/`bloom` are the 0..1 timeline values (bloom 0.5 ~ 20 s, 0.9 ~ 28 s, 1.0 ~ 35 s). */
+export const REVEAL = {
+  whisperIn: [0.38, 0.62],      // of frame.rise
+  whisperOut: [0.03, 0.11],     // of frame.bloom
+  title: [0.50, 0.70],
+  name: [0.62, 0.84],
+  ornament: [0.80, 0.94],
+  wish: [0.88, 0.99],
+};
+
+const SPAN = 5;                                    // title letters that are mid-fade at any moment
+const ease = (t) => t * t * (3 - 2 * t);
+const win = (x, [a, b]) => clamp01((x - a) / (b - a));
+
+function el(tag, cls, text) {
+  const n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (text != null) n.textContent = text;
+  return n;
+}
+
+/**
+ * @param {{whisper?: string, headline: string, name: string, wish?: string}} text
+ * @param {{reduced?: boolean}} [opts]   reduced = prefers-reduced-motion: plain cross-fades, no per-letter / wipe motion
+ */
+export async function createGreeting(text, { reduced = false } = {}) {
+  const root = document.getElementById('greeting');
+  if (!root) throw new Error('#greeting is missing from the page');
+
+  const headline = String(text.headline || '').trim();
+  const name = String(text.name || '').trim();
+  const wishText = String(text.wish || '').trim();
+  const whisperText = String(text.whisper || '').trim();
+
+  // ---- build -------------------------------------------------------------------------------------------------------------
+  root.replaceChildren();
+  const sr = el('h1', 'g-sr', `${headline} ${name}`.trim());
+  const scrim = el('div', 'g-scrim');
+  const stack = el('div', 'g-stack');
+  scrim.setAttribute('aria-hidden', 'true');
+  stack.setAttribute('aria-hidden', 'true');
+
+  const whisper = el('p', 'g-whisper', whisperText.toUpperCase());
+
+  const titleEl = el('div', 'g-title');
+  const letters = [];
+  const words = headline.toUpperCase().split(/\s+/).filter(Boolean);
+  words.forEach((word, wi) => {
+    const w = el('span', 'g-w');
+    for (const ch of word) { const s = el('span', 'g-l', ch); letters.push(s); w.appendChild(s); }
+    titleEl.appendChild(w);
+    if (wi < words.length - 1) titleEl.appendChild(document.createTextNode(' '));
+  });
+  const titleBase = el('span', 'g-base');
+  titleEl.appendChild(titleBase);
+
+  const nameEl = el('div', 'g-name', name);
+  const nameBase = el('span', 'g-base');
+  nameEl.appendChild(nameBase);
+
+  const orn = el('div', 'g-orn');
+
+  const wishEl = el('p', 'g-wish');
+  const wishWords = [];
+  wishText.split(/\s+/).filter(Boolean).forEach((word, i, arr) => {
+    const s = el('span', 'g-ww', word);
+    wishWords.push(s);
+    wishEl.appendChild(s);
+    if (i < arr.length - 1) wishEl.appendChild(document.createTextNode(' '));
+  });
+
+  if (whisperText) stack.appendChild(whisper);
+  stack.append(titleEl, nameEl, orn);
+  if (wishText) stack.appendChild(wishEl);
+  root.append(sr, scrim, stack);
+  root.hidden = false;
+
+  // ---- fonts: the text is laid out (and measured for the saved picture) with the real faces -------------------------------
+  const fontsReady = (async () => {
+    if (!document.fonts || !document.fonts.load) return;
+    const timeout = new Promise((r) => setTimeout(r, 3000));
+    await Promise.race([
+      Promise.all([
+        document.fonts.load('600 24px "Cormorant Garamond"', headline.toUpperCase() + whisperText.toUpperCase()),
+        document.fonts.load('italic 500 20px "Cormorant Garamond"', wishText),
+        document.fonts.load('400 64px Allura', name),
+      ]).catch(() => {}),
+      timeout,
+    ]);
+  })();
+
+  // ---- state --------------------------------------------------------------------------------------------------------------
+  const P = { whisper: 0, title: 0, name: 0, ornament: 0, wish: 0, scrim: 0 };
+  const applied = new Float64Array(5).fill(-1);      // values the DOM currently shows; the idle (finished) state costs nothing per frame
+
+  function apply() {
+    // whisper
+    whisper.style.opacity = P.whisper < 0.002 ? '0' : String(ease(P.whisper));
+    whisper.style.transform = reduced ? '' : `translate3d(0, ${((1 - ease(P.whisper)) * 0.6).toFixed(3)}em, 0)`;
+
+    // headline: letters rise + fade one after another
+    const n = letters.length;
+    for (let i = 0; i < n; i++) {
+      const t = reduced ? P.title : clamp01((P.title * (n - 1 + SPAN) - i) / SPAN);
+      const e = ease(t);
+      const s = letters[i].style;
+      s.opacity = t < 0.002 ? '0' : e.toFixed(3);
+      s.transform = reduced || e >= 0.999 ? '' : `translate3d(0, ${((1 - e) * 0.5).toFixed(3)}em, 0) scale(${(0.92 + 0.08 * e).toFixed(3)})`;
+    }
+
+    // name: soft-edged wipe, left to right (a single text run, so the script keeps its joins and kerning)
+    const ns = nameEl.style;
+    if (reduced) {
+      ns.opacity = P.name < 0.002 ? '0' : String(ease(P.name));
+      ns.webkitMaskImage = ns.maskImage = '';
+    } else if (P.name < 0.002) {
+      ns.opacity = '0';
+    } else if (P.name >= 0.998) {
+      ns.opacity = '1';
+      ns.webkitMaskImage = ns.maskImage = '';
+    } else {
+      const wipe = -0.18 + ease(P.name) * 1.36;                   // % of the width: starts left of the text, ends right of it
+      const m = `linear-gradient(100deg, #000 ${((wipe - 0.2) * 100).toFixed(1)}%, transparent ${(wipe * 100).toFixed(1)}%)`;
+      ns.opacity = '1';
+      ns.webkitMaskImage = ns.maskImage = m;
+    }
+
+    // ornament: draws outwards from the centre
+    const oe = ease(P.ornament);
+    orn.style.opacity = oe < 0.002 ? '0' : oe.toFixed(3);
+    orn.style.transform = reduced ? '' : `scaleX(${oe.toFixed(3)})`;
+
+    // wish
+    const we = ease(P.wish);
+    wishEl.style.opacity = we < 0.002 ? '0' : we.toFixed(3);
+    wishEl.style.transform = reduced ? '' : `translate3d(0, ${((1 - we) * 0.7).toFixed(3)}em, 0)`;
+
+    root.style.setProperty('--scrim', P.scrim.toFixed(3));
+    root.dataset.stage = P.wish > 0.995 ? 'done' : P.name > 0.002 ? 'name' : P.title > 0.002 ? 'title' : P.whisper > 0.002 ? 'whisper' : 'none';
+  }
+
+  /** call once per frame - cheap when nothing changed */
+  function update(frame) {
+    const b = frame.bloom, r = frame.rise;
+    P.whisper = win(r, REVEAL.whisperIn) * (1 - win(b, REVEAL.whisperOut));
+    P.title = win(b, REVEAL.title);
+    P.name = win(b, REVEAL.name);
+    P.ornament = win(b, REVEAL.ornament);
+    P.wish = win(b, REVEAL.wish);
+    P.scrim = Math.min(1, ease(Math.max(P.title, P.name)) + 0.6 * P.whisper);
+    let changed = false;
+    for (let i = 0; i < 5; i++) {
+      const v = i === 0 ? P.whisper : i === 1 ? P.title : i === 2 ? P.name : i === 3 ? P.ornament : P.wish;
+      if (Math.abs(v - applied[i]) > 0.0004) { applied[i] = v; changed = true; }
+    }
+    if (changed) apply();
+  }
+
+  // ---- the saved picture ---------------------------------------------------------------------------------------------------
+  /**
+   * Paint the greeting, exactly as it is on screen right now, onto a 2D canvas that already holds the rendered image.
+   * Positions come from the live DOM (so every breakpoint is honoured); drawing is scaled by W / viewport width.
+   */
+  function paintOnto(ctx, W, H) {
+    const vw = Math.max(1, window.innerWidth);
+    const k = W / vw;
+    const rectOf = (n) => n.getBoundingClientRect();
+    const fontOf = (n, px) => { const cs = getComputedStyle(n); return `${cs.fontStyle} ${cs.fontWeight} ${px}px ${cs.fontFamily}`; };
+    ctx.save();
+    ctx.textBaseline = 'alphabetic';
+
+    // scrim
+    if (P.scrim > 0.01) {
+      const g = ctx.createLinearGradient(0, 0, 0, H * 0.52);
+      g.addColorStop(0, `rgba(34,22,44,${(0.46 * P.scrim).toFixed(3)})`);
+      g.addColorStop(0.45, `rgba(34,22,44,${(0.27 * P.scrim).toFixed(3)})`);
+      g.addColorStop(1, 'rgba(34,22,44,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, W, H * 0.52);
+    }
+
+    const ink = (alpha) => { ctx.globalAlpha = alpha; ctx.fillStyle = '#fff6ea'; };
+    const softShadow = () => { ctx.shadowColor = 'rgba(30,14,24,0.55)'; ctx.shadowBlur = 14 * k; ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 1 * k; };
+    const noShadow = () => { ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0; ctx.shadowOffsetY = 0; };
+    const descentOf = (px) => { const m = ctx.measureText('Hg'); return m.fontBoundingBoxDescent != null ? m.fontBoundingBoxDescent : px * 0.24; };
+
+    // whisper
+    if (whisperText && P.whisper > 0.01) {
+      const cs = getComputedStyle(whisper), fs = parseFloat(cs.fontSize) * k, tr = (parseFloat(cs.letterSpacing) || 0) * k;
+      ctx.font = fontOf(whisper, fs);
+      const r = rectOf(whisper), base = r.bottom * k - descentOf(fs);
+      ink(ease(P.whisper)); softShadow();
+      drawTracked(ctx, whisperText.toUpperCase(), W / 2, base, tr);
+      noShadow();
+    }
+
+    // headline
+    if (P.title > 0.01) {
+      const cs = getComputedStyle(titleEl), fs = parseFloat(cs.fontSize) * k, tr = (parseFloat(cs.letterSpacing) || 0) * k;
+      ctx.font = fontOf(titleEl, fs);
+      const base = rectOf(titleBase).bottom * k;
+      ink(ease(P.title)); softShadow();
+      drawTracked(ctx, headline.toUpperCase(), W / 2, base, tr);
+      noShadow();
+    }
+
+    // name (gradient + glow + contact shadow, same recipe as the CSS)
+    if (P.name > 0.01) {
+      const cs = getComputedStyle(nameEl), fs = parseFloat(cs.fontSize) * k;
+      ctx.font = fontOf(nameEl, fs);
+      ctx.textAlign = 'center';
+      const r = rectOf(nameEl), base = rectOf(nameBase).bottom * k;
+      const g = ctx.createLinearGradient(0, r.top * k, 0, r.bottom * k);
+      g.addColorStop(0, '#fffaf1'); g.addColorStop(0.46, '#ffe3b4'); g.addColorStop(1, '#f3b762');
+      ctx.globalAlpha = ease(P.name);
+      ctx.fillStyle = g;
+      ctx.shadowColor = 'rgba(255,196,130,0.45)'; ctx.shadowBlur = 0.14 * fs; ctx.shadowOffsetY = 0;
+      ctx.fillText(name, W / 2, base);
+      ctx.shadowColor = 'rgba(40,18,28,0.5)'; ctx.shadowBlur = 0.06 * fs; ctx.shadowOffsetY = 0.02 * fs;
+      ctx.fillText(name, W / 2, base);
+      noShadow();
+      ctx.fillText(name, W / 2, base);
+      ctx.textAlign = 'start';
+    }
+
+    // ornament
+    if (P.ornament > 0.01) {
+      const r = rectOf(orn), oe = ease(P.ornament);
+      const cx = ((r.left + r.right) / 2) * k, cy = ((r.top + r.bottom) / 2) * k, hw = ((r.width / 2) * oe) * k;
+      const g = ctx.createLinearGradient(cx - hw, 0, cx + hw, 0);
+      g.addColorStop(0, 'rgba(255,226,176,0)'); g.addColorStop(0.22, 'rgba(255,226,176,0.95)');
+      g.addColorStop(0.78, 'rgba(255,226,176,0.95)'); g.addColorStop(1, 'rgba(255,226,176,0)');
+      ctx.globalAlpha = oe;
+      ctx.fillStyle = g;
+      ctx.shadowColor = 'rgba(255,200,140,0.5)'; ctx.shadowBlur = 10 * k;
+      ctx.fillRect(cx - hw, cy - 0.5 * k, hw * 2, Math.max(1, k));
+      ctx.fillStyle = '#ffe9c4';
+      const d = 3.2 * k;
+      ctx.beginPath(); ctx.moveTo(cx, cy - d); ctx.lineTo(cx + d, cy); ctx.lineTo(cx, cy + d); ctx.lineTo(cx - d, cy); ctx.closePath(); ctx.fill();
+      noShadow();
+    }
+
+    // wish: one DOM line at a time (the browser already balanced and wrapped it)
+    if (wishText && P.wish > 0.01) {
+      const cs = getComputedStyle(wishEl), fs = parseFloat(cs.fontSize) * k;
+      ctx.font = fontOf(wishEl, fs);
+      const lines = new Map();
+      for (const w of wishWords) {
+        const r = rectOf(w), key = Math.round(r.top);
+        const l = lines.get(key) || { words: [], left: Infinity, right: -Infinity, bottom: r.bottom };
+        l.words.push(w.textContent); l.left = Math.min(l.left, r.left); l.right = Math.max(l.right, r.right);
+        lines.set(key, l);
+      }
+      ink(ease(P.wish)); softShadow();
+      ctx.textAlign = 'center';
+      const desc = descentOf(fs);
+      for (const l of [...lines.entries()].sort((a, b) => a[0] - b[0]).map((e) => e[1])) {
+        ctx.fillText(l.words.join(' '), ((l.left + l.right) / 2) * k, l.bottom * k - desc);
+      }
+      noShadow();
+      ctx.textAlign = 'start';
+    }
+    ctx.restore();
+  }
+
+  return {
+    el: root,
+    ready: fontsReady,
+    update,
+    paintOnto,
+    /** latest reveal values (0..1) - for tests */
+    state: () => ({ ...P, stage: root.dataset.stage || 'none' }),
+    dispose() { root.replaceChildren(); root.hidden = true; },
+  };
+}
+
+/** Centered text with manual letter-spacing (canvas letterSpacing is not available everywhere). */
+function drawTracked(ctx, str, cx, y, tracking) {
+  const chars = [...str];
+  const widths = chars.map((c) => ctx.measureText(c).width);
+  const total = widths.reduce((a, b) => a + b, 0) + tracking * (chars.length - 1);
+  let x = cx - total / 2;
+  ctx.textAlign = 'start';
+  for (let i = 0; i < chars.length; i++) {
+    if (chars[i] !== ' ') ctx.fillText(chars[i], x, y);
+    x += widths[i] + tracking;
+  }
+}

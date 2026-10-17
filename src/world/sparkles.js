@@ -30,7 +30,8 @@ void main() {
   float life = mix(6.0, 11.0, aSeed.y);
   float cyc = uTime / life + aSeed.x;
   float age = fract(cyc);
-  float id = aSeed.x * 97.0 + floor(cyc) * 13.37;           // new random draw every cycle
+  float cycle = mod(floor(cyc), 512.0);                      // wrapped: sin() of ever larger arguments loses its randomness on mobile GPUs
+  float id = aSeed.x * 97.0 + cycle * 13.37;                 // new random draw every cycle
   float h1 = h11(id + 1.0), h2 = h11(id + 2.0), h3 = h11(id + 3.0), h4 = h11(id + 4.0), h5 = h11(id + 5.0), h6 = h11(id + 6.0);
 
   // leave the stamens, climb in a lazy spiral that opens outwards
@@ -55,8 +56,8 @@ void main() {
 
   // gold, warm white and a little petal pink
   vec3 gold = vec3(1.0, 0.70, 0.30), cream = vec3(1.0, 0.90, 0.72), rose = vec3(1.0, 0.58, 0.68);
-  float c = h11(aSeed.w * 71.0 + floor(cyc));
-  vCol = (c < 0.58 ? gold : c < 0.86 ? cream : rose) * 3.0;
+  float c = h11(aSeed.w * 71.0 + cycle);
+  vCol = (c < 0.58 ? gold : c < 0.86 ? cream : rose) * 1.7;      // HDR: the bloom pass gives the brightest glints a soft halo
 
   float size = (0.022 + 0.05 * aSeed.z * aSeed.z) * mix(1.0, 2.2, step(0.78, aSeed.w)) * (0.7 + 0.3 * tw);
   gl_PointSize = clamp(size * uPixelScale / dist, 2.0, 56.0);
@@ -72,10 +73,10 @@ void main() {
   vec2 q = gl_PointCoord * 2.0 - 1.0;
   float d2 = dot(q, q);
   float core = exp(-8.0 * d2) + 0.2 * exp(-2.4 * d2);                 // bright pin + soft halo
-  float cross = (exp(-abs(q.x) * 16.0) * exp(-abs(q.y) * 2.4) + exp(-abs(q.y) * 16.0) * exp(-abs(q.x) * 2.4)) * 0.9 * vGlint;
-  float a = (core + cross) * (1.0 - smoothstep(0.85, 1.0, sqrt(d2))) * vA;
+  float glint = (exp(-abs(q.x) * 16.0) * exp(-abs(q.y) * 2.4) + exp(-abs(q.y) * 16.0) * exp(-abs(q.x) * 2.4)) * 0.9 * vGlint;   // (not "cross": that is a GLSL built-in)
+  float a = (core + glint) * (1.0 - smoothstep(0.85, 1.0, sqrt(d2))) * vA;
   if (a < 0.03) discard;           // depth is written only where a sparkle is really visible (see createSparkles)
-  gl_FragColor = vec4(vCol * a, a);
+  gl_FragColor = vec4(vCol, a);    // additive blending multiplies by alpha once: the falloff is linear, the soft halo survives
 }
 `;
 

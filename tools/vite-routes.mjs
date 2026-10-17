@@ -44,6 +44,22 @@ export function applyRouteMeta(html, route) {
   return html;
 }
 
+/**
+ * GitHub Pages (like Netlify and Cloudflare Pages) serves 404.html for ANY unknown URL, at that URL, so relative links break two
+ * folders deep. When the site's base path is known - GitHub Actions: /<repo>/ from GITHUB_REPOSITORY, or PAGES_BASE to override -
+ * the plain page is also written as 404.html with a <base> pointing back at the site root, so a mistyped link still shows the lotus
+ * (the app falls back to the home page for paths it does not know) instead of an error page.
+ */
+export function pagesBase(env = process.env) {
+  if (env.PAGES_BASE) return env.PAGES_BASE;
+  const repo = String(env.GITHUB_REPOSITORY || '').split('/')[1];
+  if (env.GITHUB_ACTIONS !== 'true' || !repo) return null;
+  return /\.github\.io$/i.test(repo) ? '/' : `/${repo}/`;
+}
+export function notFoundPage(template, base) {
+  return applyRouteMeta(template, ROUTES[DEFAULT_ROUTE]).replace(/<head>/i, () => `<head>\n<base href="${esc(base)}">`);
+}
+
 /** Pages live one folder deeper than the template: ./assets/x -> ../assets/x (only in src= / href= attributes of the relative base). */
 export function deepenRelativeUrls(html) {
   return html.replace(/(\s(?:src|href)=")\.\/(?!\/)/g, '$1../');
@@ -108,6 +124,11 @@ export function routePages({ mode = 'folders' } = {}) {
             fs.writeFileSync(path.join(outDir, `${route.id}.html`), applyRouteMeta(template, route));
             written.push(`${route.id}.html`);
           }
+        }
+        const base = mode === 'folders' ? pagesBase() : null;
+        if (base) {
+          fs.writeFileSync(path.join(outDir, '404.html'), notFoundPage(template, base));
+          written.push('404.html');
         }
         console.log(`\n  routes: ${written.join('  ')}`);
       },

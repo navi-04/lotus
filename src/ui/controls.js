@@ -61,20 +61,23 @@ export function createUI(app) {
     for (const b of menu.querySelectorAll('button')) b.setAttribute('aria-checked', String(b.dataset.q === app.qualityName));
   };
   paintMenu();
+  // one place that opens or closes the menu, so the button's aria-expanded can never disagree with what is on screen
+  const setMenu = (open) => {
+    menu.hidden = !open;
+    btnQ.setAttribute('aria-expanded', String(open));
+    if (open) paintMenu();
+  };
   btnQ.addEventListener('click', (e) => {
     e.stopPropagation();
-    menu.hidden = !menu.hidden;
-    btnQ.setAttribute('aria-expanded', String(!menu.hidden));
-    paintMenu();
+    setMenu(menu.hidden);
   });
   menu.addEventListener('click', (e) => {
     const b = e.target.closest('button[data-q]');
     if (!b) return;
-    menu.hidden = true;
-    btnQ.setAttribute('aria-expanded', 'false');
+    setMenu(false);
     app.setQuality(b.dataset.q);
   });
-  window.addEventListener('pointerdown', (e) => { if (!menu.hidden && !menu.contains(e.target) && e.target !== btnQ) { menu.hidden = true; btnQ.setAttribute('aria-expanded', 'false'); } });
+  window.addEventListener('pointerdown', (e) => { if (!menu.hidden && !menu.contains(e.target) && e.target !== btnQ) setMenu(false); });
 
   let capBusy = false;
   async function doCapture() {
@@ -97,7 +100,7 @@ export function createUI(app) {
       case 'f': app.toggleFullscreen(); break;
       case 'c': doCapture(); break;
       case 'q': btnQ.click(); break;
-      case 'escape': menu.hidden = true; break;
+      case 'escape': setMenu(false); break;
       default: break;
     }
   });

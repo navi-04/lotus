@@ -120,14 +120,15 @@ export function resolveQuality({ gl, params = getParams() } = {}) {
   const auto = choice === 'auto';
   let tier = auto ? guessTier(gpu, dev) : choice;
 
-  // safety nets (never override an explicit ?quality=)
-  let demoted = 0;
+  // Safety nets. Neither overrides an explicit ?quality=. A software renderer lowers the DEFAULT only: a pick made in the Quality menu
+  // (stored) is honoured exactly like the URL, otherwise "Quality > Ultra" could never undo it.
+  let demoted = 0, reason = null;
   if (!fromUrl) {
     const software = /swiftshader|llvmpipe|software|basic render/i.test(gpu.renderer || '');
-    if (software && TIER_ORDER.indexOf(tier) > 0) { tier = 'low'; demoted = 1; }
-    const steps = readSafe();
-    const idx = Math.max(0, TIER_ORDER.indexOf(tier) - steps);
-    if (steps && idx !== TIER_ORDER.indexOf(tier)) { demoted = TIER_ORDER.indexOf(tier) - idx; tier = TIER_ORDER[idx]; }
+    if (software && source === 'default' && TIER_ORDER.indexOf(tier) > 0) { tier = 'low'; demoted = 1; reason = 'software'; }
+    const at = TIER_ORDER.indexOf(tier);
+    const to = Math.max(0, at - readSafe());
+    if (to < at) { demoted += at - to; tier = TIER_ORDER[to]; reason = reason || 'crash'; }
   }
   const base = TIERS[tier];
 
@@ -141,6 +142,7 @@ export function resolveQuality({ gl, params = getParams() } = {}) {
     choice,                // what was asked for: 'auto' or a tier name (before the safety nets)
     source,                // 'url' | 'stored' | 'default'
     demoted,               // tiers stepped down by a safety net (0 = running exactly what was asked for)
+    reason,                // why: 'software' (no real GPU) | 'crash' (a lost context / a boot that died) | null
     ...base,
     dprMax: fixedDpr ? params.dpr : base.dprMax,
     dprMin: fixedDpr ? params.dpr : Math.min(base.dprMin, dprCap),

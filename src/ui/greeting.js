@@ -110,6 +110,36 @@ export async function createGreeting(text, { reduced = false } = {}) {
     ]);
   })();
 
+  // ---- fit: the lettering must never be wider than the screen -----------------------------------------------------------------
+  // The name and the whisper are single unbreakable lines, so a long or two-word name (or a fallback font wider than Allura) would
+  // run past the edges and be cut off. Their font size shrinks until they fit; a very long wish shrinks until it ends above the
+  // flower. Every pass starts from the stylesheet size, and paintOnto reads the computed sizes, so the saved card follows.
+  function fit() {
+    const cs = getComputedStyle(stack);
+    const avail = stack.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+    for (const n of [nameEl, whisper, titleEl, wishEl]) n.style.fontSize = '';
+    if (!(avail > 0)) return;
+    for (const n of [nameEl, whisper, titleEl]) {
+      const w = n.scrollWidth;
+      if (w > avail + 0.5) n.style.fontSize = `${Math.max(10, parseFloat(getComputedStyle(n).fontSize) * (avail / w)).toFixed(2)}px`;
+    }
+    if (wishText) {
+      // measured from layout (offsetTop / offsetHeight), not from rectangles: a reveal transform must not change the answer
+      const limit = window.innerHeight * (window.innerWidth < window.innerHeight ? 0.42 : 0.5);
+      for (let i = 0; i < 8 && wishEl.offsetTop + wishEl.offsetHeight > limit; i++) {
+        const fs = parseFloat(getComputedStyle(wishEl).fontSize);
+        if (fs <= 12) break;
+        wishEl.style.fontSize = `${Math.max(12, fs * 0.92).toFixed(2)}px`;
+      }
+    }
+  }
+  let fitFrame = 0;
+  const refit = () => { cancelAnimationFrame(fitFrame); fitFrame = requestAnimationFrame(fit); };
+  window.addEventListener('resize', refit);
+  window.addEventListener('orientationchange', refit);
+  fit();
+  fontsReady.then(fit);
+
   // ---- state --------------------------------------------------------------------------------------------------------------
   const P = { whisper: 0, title: 0, name: 0, ornament: 0, wish: 0, scrim: 0 };
   const applied = new Float64Array(5).fill(-1);      // values the DOM currently shows; the idle (finished) state costs nothing per frame
@@ -291,7 +321,12 @@ export async function createGreeting(text, { reduced = false } = {}) {
     paintOnto,
     /** latest reveal values (0..1) - for tests */
     state: () => ({ ...P, stage: root.dataset.stage || 'none' }),
-    dispose() { root.replaceChildren(); root.hidden = true; },
+    dispose() {
+      window.removeEventListener('resize', refit);
+      window.removeEventListener('orientationchange', refit);
+      cancelAnimationFrame(fitFrame);
+      root.replaceChildren(); root.hidden = true;
+    },
   };
 }
 

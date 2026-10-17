@@ -141,13 +141,14 @@ async function boot() {
   const pipeline = createPipeline(ctx);
   const rig = createCameraRig(ctx, canvas);
 
+  const reducedMotion = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+
   // birthday pages: the lettering that writes itself over the sky (fonts are loaded before the loader lifts)
   let greeting = null;
   if (route.kind === 'birthday' && route.greeting && !params.hide.has('greeting')) {
     setProgress(0.78, 'Lettering the sky…');
     try {
-      const reduced = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
-      greeting = await createGreeting(route.greeting, { reduced });
+      greeting = await createGreeting(route.greeting, { reduced: reducedMotion });
       await greeting.ready;
     } catch (e) { console.warn('Greeting unavailable:', e); greeting = null; }
   }
@@ -172,7 +173,11 @@ async function boot() {
   /** route-specific layers that follow the timeline: the lettering and the lens shift that makes room for it */
   function applyRouteState() {
     if (greeting) greeting.update(frame);
-    if (route.kind === 'birthday') rig.setLensShift(lensShiftFor(camera.aspect) * smoothstep(0.30, 0.72, frame.bloom));
+    if (route.kind === 'birthday') {
+      // The picture slides down over the bloom to make room for the lettering. With reduced motion it simply starts there.
+      const shift = lensShiftFor(camera.aspect);
+      rig.setLensShift(reducedMotion ? shift : shift * smoothstep(0.30, 0.72, frame.bloom));
+    }
   }
 
   // prime one frame so focus/flowerRadius are valid before the first camera placement

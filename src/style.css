@@ -51,3 +51,12 @@ body { position: fixed; inset: 0; }
 .lotus-spin i:nth-child(8) { transform: rotate(315deg); animation-delay: 0.84s; }
 @keyframes petal { 0%, 8% { opacity: 0; scale: 0.4; } 35%, 75% { opacity: 0.95; scale: 1; } 100% { opacity: 0; scale: 1.08; } }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* ---- title card ---- */
+#title {
+  position: fixed; left: calc(18px + var(--safe-l)); top: calc(16px + var(--safe-t)); z-index: 10; pointer-events: none;
+  opacity: 0; transform: translateY(-4px); transition: opacity 1.6s ease, transform 1.6s ease; text-shadow: 0 1px 14px rgba(0, 0, 0, 0.45);
+}
+#title.show { opacity: 1; transform: none; }
+#title h1 { margin: 0; font: 600 20px/1.1 'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif; letter-spacing: 0.04em; }
+#title p { margin: 3px 0 0; font-style: italic; color: var(--ink-dim); font-size: 13px; font-family: 'Iowan Old Style', Palatino, Georgia, serif; }

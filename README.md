@@ -101,3 +101,20 @@ tools/                             headless-browser dev tools (below) + vite-rou
 ```
 
 Everything is deterministic: the same seed gives the same pond, and `?still=1` makes a frame reproducible.
+
+## Dev tools (headless Edge/Chrome via puppeteer-core)
+
+```bash
+npm run shot -- --url "http://localhost:5173/?still=1&bloom=0.5&cam=close" --out shots/a.png
+npm run qa   -- --preset bloom            # bloom 0..1 filmstrip + contact sheet (also: cams, rise, quality, mobile, timeline, all)
+npm run perf -- --url "..." --uncapped    # frame-time probe
+npm run test:ui                            # end-to-end UI/touch/capture checks (add --url http://localhost:5173/nivashini for the birthday page)
+npm run test:routes                        # every route variant, ultra-by-default, quality overrides + safety nets, greeting reveal, saved card
+npm run test:routes -- --base http://localhost:4173 --single dist-single   # same against `npm run preview` and the double-click files
+npm run card -- --url http://localhost:5173/nivashini --out shots/card.png # press "save picture" and keep the PNG a visitor would get
+npm run qa -- --preset birthday           # /nivashini at t = 3 ... 37 s (whisper, letters, name, wish) + contact sheet
+npm run qa -- --preset birthday-views     # the finished card on desktop, phone portrait + landscape, tablet, ultrawide
+node tools/sheet.mjs --out sheet.png --cols 3 a.png b.png c.png
+```
+
+Shots land in `shots/` (git-ignored).

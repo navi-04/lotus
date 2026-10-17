@@ -103,10 +103,13 @@ body { position: fixed; inset: 0; }
 
 #toast {
   position: fixed; left: 50%; top: calc(18px + var(--safe-t)); z-index: 25; transform: translate(-50%, -10px); opacity: 0; pointer-events: none;
-  padding: 10px 16px; border-radius: 999px; background: var(--glass); border: 1px solid var(--glass-line); max-width: calc(100vw - 40px);
+  padding: 10px 16px; border-radius: 999px; background: var(--glass); border: 1px solid var(--glass-line);
+  width: max-content; max-width: calc(100vw - 40px);          /* size to the text; left:50% alone squeezed it to half the screen and wrapped it into a tall pill */
   -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); transition: opacity 0.4s ease, transform 0.4s ease; text-align: center;
 }
 #toast.show { opacity: 1; transform: translate(-50%, 0); }
+/* the greeting owns the top of the screen, so on those pages toasts sit just above the control bar (top/bottom only: the transform stays) */
+html[data-kind='birthday'] #toast { top: auto; bottom: calc(92px + var(--safe-b)); }
 #hud {
   position: fixed; right: calc(8px + var(--safe-r)); top: calc(8px + var(--safe-t)); z-index: 15; margin: 0; padding: 8px 10px; pointer-events: none;
   font: 11px/1.4 ui-monospace, Consolas, monospace; color: #cfe; background: rgba(0, 0, 0, 0.45); border-radius: 8px; white-space: pre;

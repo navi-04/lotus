@@ -7,6 +7,8 @@ import * as THREE from 'three';
 import { getParams } from './core/params.js';
 import { resolveQuality, storeQuality } from './core/quality.js';
 import { armCrashGuard } from './core/crashGuard.js';
+import { createShedder, readShed, writeShed, shedSettings } from './core/shed.js';
+import { local } from './core/storage.js';
 import { SCENE, SUN, TIMELINE } from './core/constants.js';
 import { makeRng } from './core/rng.js';
 import { createFrame, stepFrame, smoothstep } from './core/timeline.js';
@@ -115,6 +117,10 @@ async function boot() {
     pondLayout: { leafDisks: [] },
     log: params.debug ? (...a) => console.log('[lotus]', ...a) : () => {},
   };
+  // How many effects are eased to keep the motion smooth (core/shed.js): the level this device needed last time, unless pinned by ?shed=
+  const shedPinned = params.shed != null;
+  const shedder = createShedder({ level: shedPinned ? params.shed : readShed(local) });
+  ctx.shedder = shedder;
 
   // ---- build the world in yielding steps --------------------------------------------------------------------------
   const steps = [
@@ -147,6 +153,16 @@ async function boot() {
   await nextFrame();
   const pipeline = createPipeline(ctx);
   const rig = createCameraRig(ctx, canvas);
+
+  // easing the effects: the depth-of-field blur is computed smaller, the shadows and the water reflection are refreshed less often
+  let shed = shedSettings(0), shadowTick = 0;
+  function applyShed(level) {
+    shed = shedSettings(level);
+    pipeline.setDofScale(shed.dofScale);
+    if (mods.water) mods.water.setReflection({ every: shed.reflectionEvery, scale: shed.reflectionScale });
+    if (shed.shadowEvery === 1) renderer.shadowMap.autoUpdate = true;
+  }
+  applyShed(shedder.level);
 
   const reducedMotion = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 
@@ -299,12 +315,26 @@ async function boot() {
     rig.update(Math.max(dt, 1e-3));
     ui.update();
     renderer.info.reset();
+    if (shed.shadowEvery > 1 && renderer.shadowMap.enabled) {      // the shadows only need refreshing every few frames
+      renderer.shadowMap.autoUpdate = false;
+      renderer.shadowMap.needsUpdate = ++shadowTick % shed.shadowEvery === 0;
+    }
     pipeline.render(frame);
     if (mods.petals) mods.petals.watchFrame(frame);        // the live-frame check on the petals (lotus/petalWatch.js)
 
-    // gentle hint when even the lowest resolution can't hold frame rate
     const inf = pipeline.info();
-    if (!warnedSlow && !quality.fixedDpr && quality.tier !== 'low' && inf.dpr <= quality.dprMin + 0.01 && inf.frameMs > 38) {
+    // the governor has nothing left to give (slowest pace, sharpest worthwhile ratio, still late): ease the effects one level, and remember it
+    if (!shedPinned && !quality.fixedDpr) {
+      const lv = shedder.update(dt, inf.exhausted);
+      if (lv) {
+        applyShed(lv);
+        writeShed(local, lv);
+        if (lv === 1) ui.toast('Easing a few effects to keep the motion smooth', 5000);
+      }
+    }
+
+    // gentle hint when even all of that is not enough
+    if (!warnedSlow && !quality.fixedDpr && quality.tier !== 'low' && inf.exhausted && !shedder.canShed) {
       slowFor += dt;
       if (slowFor > 6) { warnedSlow = true; ui.toast(`Running slowly — try Quality › ${quality.tier === 'medium' ? 'Low' : 'Medium'}`, 6000); }
     } else slowFor = Math.max(0, slowFor - dt);
@@ -314,12 +344,14 @@ async function boot() {
       if (hudT > 0.4) {
         hudT = 0;
         const i = renderer.info.render;
-        hud.textContent = `${quality.tier}${quality.auto ? ' (auto)' : ''}  dpr ${inf.dpr.toFixed(2)}  ${inf.frameMs.toFixed(1)} ms\ncalls ${i.calls}  tris ${(i.triangles / 1000).toFixed(0)}k\nbloom ${frame.bloom.toFixed(2)}  rise ${frame.rise.toFixed(2)}  t ${frame.clock.toFixed(1)}\n${gpuInfo()}`;
+        const pc = inf.pacing;
+        hud.textContent = `${quality.tier}${quality.auto ? ' (auto)' : ''}  dpr ${inf.dpr.toFixed(2)}  ${inf.frameMs.toFixed(1)} ms  eased ${shedder.level}${shedPinned ? ' (pinned)' : ''}\ndisplay ${pc.unthrottled ? 'unthrottled' : pc.hz.toFixed(0) + ' Hz'}  pace ${pc.pace} (${pc.pace}/${pc.paceBase}..${pc.paceMax})  -> ${pc.fps.toFixed(0)} fps\ncalls ${i.calls}  tris ${(i.triangles / 1000).toFixed(0)}k\nbloom ${frame.bloom.toFixed(2)}  rise ${frame.rise.toFixed(2)}  t ${frame.clock.toFixed(1)}\n${gpuInfo()}`;
       }
     }
   }
 
   function loop(now) {
+    if (!pipeline.shouldRender(now)) { requestAnimationFrame(loop); return; }      // the governor is pacing the frames: skip this refresh
     const dt = (now - last) / 1000;
     last = now;
     tick(dt);
@@ -342,7 +374,7 @@ async function boot() {
   requestAnimationFrame(loop);
 
   window.__lotus = {
-    ctx, mods, scene, camera, renderer, frame, controls: rig.controls, pipeline, rig, route, greeting, quality, petalReport, shaderErrors,
+    ctx, mods, scene, camera, renderer, frame, controls: rig.controls, pipeline, rig, route, greeting, quality, petalReport, shaderErrors, shedder,
     setCamera: rig.setView,
     setBloom(b) { if (frozenFromUrl) frozenFromUrl.bloom = b; },
     setTime(t) { state.scrub = t; },

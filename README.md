@@ -106,15 +106,17 @@ The petals are the one part of the flower that needs more than stock drawing: ea
 | `instlite` | instanced + a lighter skin (no noise, veins or screen-space derivatives) |
 | `cpu` | the surface built in JavaScript, drawn with a stock `MeshStandardMaterial` — needs nothing special |
 
+The probe draws the petals alone, so a second check watches the real frame (`src/lotus/petalWatch.js`): an occlusion query around the petal draw of the main camera asks the GPU whether any pixel of them got through. Once the flower is above the water and in view, 90 frames without a single pixel mean they are not showing whatever the probe said, and the app moves one rung down, live. The first pixel that passes ends the watch for good.
+
 The rung that worked is remembered for a week (`lotus.petals`) so a device that needed a lower one does not pay for the failed ones on every visit; merely working does not renew the note. `?petals=tex|inst|instlite|cpu` pins a rung (it is measured and reported, never swapped) — handy for finding out which one a phone can do. On a healthy device none of this is visible: one probe, nothing stored, and the pixels are identical to the plain path.
 
-**`?debug=1`** overlays the GPU name, its limits (varying / uniform vectors, vertex texture units, attributes), the petal rung with the probe's pixel counts for every rung tried, and any shader that failed to build — a screenshot of it from a phone says what that GPU refused.
+**`?debug=1`** overlays the GPU name, its limits (varying / uniform vectors, vertex texture units, attributes), the petal rung with the probe's pixel counts for every rung tried, the live-frame verdict (`seen` / `watching n/90` / `blind`), and any shader that failed to build — a screenshot of it from a phone says what that GPU refused.
 
 Reproduce with `npm run perf -- --url "http://localhost:5173/?quality=high&still=1&bloom=1&dpr=1" --uncapped`.
 
 ## URL parameters
 
-`?quality=low|medium|high|ultra|auto` · `?route=home|nivashini` (pick the page when the path can't, e.g. `file://`) · `?bloom=0..1` (freeze the bloom stage) · `?rise=0..1` · `?t=seconds` · `?still=1` (fully deterministic frame) · `?cam=default|close|top|side|low|wide|portrait|x,y,z,tx,ty,tz[,fov]` · `?cine=1` (use the cinematic camera on a frozen frame) · `?dpr=1.5` (pins the pixel ratio and turns adaptation off) · `?hide=leaves,water,stamens,petals,pod,stem,env,post,sparkles,greeting` · `?tm=neutral|agx|aces` · `?glow=0.3` · `?exposure=1` · `?seed=123` · `?petals=tex|inst|instlite|cpu` (pin how the petals are drawn, see above) · `?debug=1` (stats, GPU limits and petal-probe overlay). Test hook: `?breakpetals=tex,inst` pretends those rungs' draws are dropped, to exercise the ladder.
+`?quality=low|medium|high|ultra|auto` · `?route=home|nivashini` (pick the page when the path can't, e.g. `file://`) · `?bloom=0..1` (freeze the bloom stage) · `?rise=0..1` · `?t=seconds` · `?still=1` (fully deterministic frame) · `?cam=default|close|top|side|low|wide|portrait|x,y,z,tx,ty,tz[,fov]` · `?cine=1` (use the cinematic camera on a frozen frame) · `?dpr=1.5` (pins the pixel ratio and turns adaptation off) · `?hide=leaves,water,stamens,petals,pod,stem,env,post,sparkles,greeting` · `?tm=neutral|agx|aces` · `?glow=0.3` · `?exposure=1` · `?seed=123` · `?petals=tex|inst|instlite|cpu` (pin how the petals are drawn, see above) · `?debug=1` (stats, GPU limits and petal-probe overlay). Test hooks: `?breakpetals=tex,inst` pretends those rungs fail the startup probe, `?breaklive=tex` pretends they pass it but never show in the live frame (to exercise the ladder and the watch).
 
 ## Project layout
 
@@ -122,7 +124,7 @@ Reproduce with `npm run perf -- --url "http://localhost:5173/?quality=high&still
 index.html, src/style.css          shell, loader, UI styling
 src/main.js                        boot sequence, frame loop, UI actions, QA hooks
 src/core/                          constants, quality tiers, crash guard, guarded storage, timeline, params, seeded rng, shader patching, compact noise
-src/lotus/                         petals (controller) + petalShape / petalGpu / petalCpu / petalProbe / petalLadder / petalSkin / petalContract, pod, stamens, stem, leaves
+src/lotus/                         petals (controller) + petalShape / petalGpu / petalCpu / petalProbe / petalWatch / petalLadder / petalSkin / petalContract, pod, stamens, stem, leaves
 src/world/                         environment (sky, IBL, sun, fog), envBackdrop, envSky, water, sparkles (birthday pages)
 src/render/                        renderer, post pipeline (capture), adaptive resolution controller
 src/app/cameraRig.js               cinematic camera + orbit hand-over (+ lens shift)
@@ -145,7 +147,7 @@ npm run perf -- --url "..." --uncapped    # frame-time probe
 npm run test:unit                          # Node-only, no GPU: crash guard, resolution controller simulation, routes + page generator, quality tiers, petal ladder (what CI runs)
 npm run check                              # test:unit, then a production build
 npm run test:ui                            # end-to-end UI/touch/capture checks (add --url http://localhost:5173/nivashini for the birthday page)
-npm run test:routes                        # 126 browser checks: every route variant, ultra-by-default, quality overrides + safety nets, petals + the ladder, greeting reveal, saved card, long names
+npm run test:routes                        # 131 browser checks: every route variant, ultra-by-default, quality overrides + safety nets, petals + the ladder + the live-frame watch, greeting reveal, saved card, long names
 npm run test:routes -- --base http://localhost:4173 --single dist-single   # same against `npm run preview` and the double-click files
 npm run test:routes -- --base https://navi-04.github.io/lotus --static     # the live GitHub Pages site
 npm run card -- --url http://localhost:5173/nivashini --out shots/card.png # press "save picture" and keep the PNG a visitor would get

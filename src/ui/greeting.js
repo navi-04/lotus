@@ -228,14 +228,19 @@ export async function createGreeting(text, { reduced = false } = {}) {
       lines.set(key, l);
     }
     const mid = (r) => (r.left + r.right) / 2;
-    const whisperRect = rect(whisper), titleRect = rect(titleEl), nameRect = rect(nameEl);
+    const whisperRect = rect(whisper), nameRect = rect(nameEl);
     return {
       vw: Math.max(1, window.innerWidth),
       P: { ...P },
       whisper: whisperText ? { cx: mid(whisperRect), bottom: whisperRect.bottom, font: font(whisper) } : null,
-      title: { cx: mid(titleRect), baseline: rect(titleBase).bottom, font: font(titleEl) },
-      name: { rect: nameRect, cx: mid(nameRect), baseline: rect(nameBase).bottom, font: font(nameEl) },
-      ornament: { rect: rect(orn) },
+      // every headline letter as it is on screen right now (the reveal staggers each one's opacity and offset)
+      letters: letters.map((n) => ({ ch: n.textContent, rect: rect(n), alpha: Number(n.style.opacity) || 0 })),
+      titleFont: font(titleEl),
+      name: {
+        rect: nameRect, cx: mid(nameRect), baseline: rect(nameBase).bottom, font: font(nameEl), alpha: Number(nameEl.style.opacity) || 0,
+        wipe: !reduced && P.name > 0.002 && P.name < 0.998 ? -0.18 + ease(P.name) * 1.36 : null,      // same maths as apply(): where the wipe edge is
+      },
+      ornament: { rect: rect(orn), width: orn.offsetWidth },                                            // layout width: the rectangle is already scaled by the reveal
       wish: wishText ? { font: font(wishEl), lines: [...lines.entries()].sort((a, b) => a[0] - b[0]).map(([, l]) => ({ text: l.words.join(' '), cx: (l.left + l.right) / 2, bottom: l.bottom })) } : null,
     };
   }
@@ -264,7 +269,11 @@ export async function createGreeting(text, { reduced = false } = {}) {
     const ink = (alpha) => { ctx.globalAlpha = alpha; ctx.fillStyle = '#fff6ea'; };
     const softShadow = () => { ctx.shadowColor = 'rgba(30,14,24,0.55)'; ctx.shadowBlur = 14 * k; ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 1 * k; };
     const noShadow = () => { ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0; ctx.shadowOffsetY = 0; };
-    const descentOf = (px) => { const m = ctx.measureText('Hg'); return m.fontBoundingBoxDescent != null ? m.fontBoundingBoxDescent : px * 0.24; };
+    const metrics = (px) => {
+      const m = ctx.measureText('Hg');
+      return { asc: m.fontBoundingBoxAscent != null ? m.fontBoundingBoxAscent : px * 0.8, desc: m.fontBoundingBoxDescent != null ? m.fontBoundingBoxDescent : px * 0.24 };
+    };
+    const descentOf = (px) => metrics(px).desc;
 
     // whisper
     if (snap.whisper && S.whisper > 0.01) {
@@ -275,37 +284,66 @@ export async function createGreeting(text, { reduced = false } = {}) {
       noShadow();
     }
 
-    // headline
-    if (S.title > 0.01) {
-      const f = snap.title.font, fs = f.size * k;
+    // headline: every letter with the opacity and offset it has on screen, so a picture saved mid-reveal shows the same half-written line
+    if (snap.letters.some((L) => L.alpha > 0.004)) {
+      const f = snap.titleFont, fs = f.size * k, tr = f.tracking * k;
       ctx.font = fontOf(f, fs);
-      ink(ease(S.title)); softShadow();
-      drawTracked(ctx, headline.toUpperCase(), snap.title.cx * k, snap.title.baseline * k, f.tracking * k);
+      const { asc, desc } = metrics(fs);
+      softShadow();
+      ctx.fillStyle = '#fff6ea';
+      ctx.textAlign = 'start';
+      for (const L of snap.letters) {
+        if (L.alpha < 0.004) continue;
+        const adv = ctx.measureText(L.ch).width + tr;                   // a letter's box is its advance plus the tracking
+        const cx = ((L.rect.left + L.rect.right) / 2) * k, cy = ((L.rect.top + L.rect.bottom) / 2) * k;
+        ctx.globalAlpha = L.alpha;
+        ctx.fillText(L.ch, cx - adv / 2, cy + (asc - desc) / 2);        // the line box centres ascent + descent on its middle
+      }
       noShadow();
     }
 
-    // name (gradient + glow + contact shadow, same recipe as the CSS)
-    if (S.name > 0.01) {
+    // name (gradient + glow + contact shadow, same recipe as the CSS), written left to right while the reveal is under way
+    if (snap.name.alpha > 0.004) {
       const f = snap.name.font, fs = f.size * k, r = snap.name.rect, cx = snap.name.cx * k, base = snap.name.baseline * k;
-      ctx.font = fontOf(f, fs);
-      ctx.textAlign = 'center';
-      const g = ctx.createLinearGradient(0, r.top * k, 0, r.bottom * k);
-      g.addColorStop(0, '#fffaf1'); g.addColorStop(0.46, '#ffe3b4'); g.addColorStop(1, '#f3b762');
-      ctx.globalAlpha = ease(S.name);
-      ctx.fillStyle = g;
-      ctx.shadowColor = 'rgba(255,196,130,0.45)'; ctx.shadowBlur = 0.14 * fs; ctx.shadowOffsetY = 0;
-      ctx.fillText(name, cx, base);
-      ctx.shadowColor = 'rgba(40,18,28,0.5)'; ctx.shadowBlur = 0.06 * fs; ctx.shadowOffsetY = 0.02 * fs;
-      ctx.fillText(name, cx, base);
-      noShadow();
-      ctx.fillText(name, cx, base);
-      ctx.textAlign = 'start';
+      const drawName = (c) => {
+        c.font = fontOf(f, fs);
+        c.textAlign = 'center';
+        const g = c.createLinearGradient(0, r.top * k, 0, r.bottom * k);
+        g.addColorStop(0, '#fffaf1'); g.addColorStop(0.46, '#ffe3b4'); g.addColorStop(1, '#f3b762');
+        c.fillStyle = g;
+        c.shadowColor = 'rgba(255,196,130,0.45)'; c.shadowBlur = 0.14 * fs; c.shadowOffsetY = 0;
+        c.fillText(name, cx, base);
+        c.shadowColor = 'rgba(40,18,28,0.5)'; c.shadowBlur = 0.06 * fs; c.shadowOffsetY = 0.02 * fs;
+        c.fillText(name, cx, base);
+        c.shadowColor = 'transparent'; c.shadowBlur = 0; c.shadowOffsetY = 0;
+        c.fillText(name, cx, base);
+      };
+      if (snap.name.wipe == null) {
+        ctx.globalAlpha = snap.name.alpha;
+        drawName(ctx);
+        ctx.textAlign = 'start';
+      } else {
+        // mid-wipe: draw onto a layer, keep only what the soft-edged wipe has reached (the CSS mask), then lay it on the picture
+        const pad = Math.ceil(0.5 * fs);
+        const ox = Math.floor(r.left * k) - pad, oy = Math.floor(r.top * k) - pad;
+        const layer = document.createElement('canvas');
+        layer.width = Math.ceil(r.width * k) + 2 * pad; layer.height = Math.ceil(r.height * k) + 2 * pad;
+        const lc = layer.getContext('2d');
+        lc.textBaseline = 'alphabetic';
+        lc.translate(-ox, -oy);
+        drawName(lc);
+        lc.globalCompositeOperation = 'destination-in';
+        lc.fillStyle = wipeMask(lc, r.left * k, r.top * k, r.width * k, r.height * k, snap.name.wipe);
+        lc.fillRect(ox, oy, layer.width, layer.height);
+        ctx.globalAlpha = snap.name.alpha;
+        ctx.drawImage(layer, ox, oy);
+      }
     }
 
     // ornament
     if (S.ornament > 0.01) {
       const r = snap.ornament.rect, oe = ease(S.ornament);
-      const cx = ((r.left + r.right) / 2) * k, cy = ((r.top + r.bottom) / 2) * k, hw = ((r.width / 2) * oe) * k;
+      const cx = ((r.left + r.right) / 2) * k, cy = ((r.top + r.bottom) / 2) * k, hw = ((snap.ornament.width / 2) * oe) * k;
       const g = ctx.createLinearGradient(cx - hw, 0, cx + hw, 0);
       g.addColorStop(0, 'rgba(255,226,176,0)'); g.addColorStop(0.22, 'rgba(255,226,176,0.95)');
       g.addColorStop(0.78, 'rgba(255,226,176,0.95)'); g.addColorStop(1, 'rgba(255,226,176,0)');
@@ -348,6 +386,25 @@ export async function createGreeting(text, { reduced = false } = {}) {
       root.replaceChildren(); root.hidden = true;
     },
   };
+}
+
+/**
+ * The mask the stylesheet puts on the name while it is being written - linear-gradient(100deg, #000 (wipe - 0.2), transparent wipe),
+ * positions along the CSS gradient line - as a canvas gradient over the box (x, y, w, h).
+ */
+function wipeMask(ctx, x, y, w, h, wipe) {
+  const a = (100 * Math.PI) / 180;
+  const dx = Math.sin(a), dy = -Math.cos(a);                  // CSS angles run clockwise from "up"
+  const len = Math.abs(w * dx) + Math.abs(h * dy);            // length of the CSS gradient line for this box
+  const cx = x + w / 2, cy = y + h / 2;
+  const g = ctx.createLinearGradient(cx - (dx * len) / 2, cy - (dy * len) / 2, cx + (dx * len) / 2, cy + (dy * len) / 2);
+  const t0 = wipe - 0.2, t1 = wipe;                           // opaque up to t0, clear from t1
+  const alphaAt = (t) => (t <= t0 ? 1 : t >= t1 ? 0 : (t1 - t) / (t1 - t0));
+  g.addColorStop(0, `rgba(0,0,0,${alphaAt(0)})`);             // canvas stops live in 0..1: end colours stand in for stops beyond the box
+  if (t0 > 0 && t0 < 1) g.addColorStop(t0, 'rgba(0,0,0,1)');
+  if (t1 > 0 && t1 < 1) g.addColorStop(t1, 'rgba(0,0,0,0)');
+  g.addColorStop(1, `rgba(0,0,0,${alphaAt(1)})`);
+  return g;
 }
 
 /** Centered text with manual letter-spacing (canvas letterSpacing is not available everywhere). */

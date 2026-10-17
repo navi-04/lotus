@@ -73,7 +73,7 @@ async function boot() {
   const canvas = $('scene');
   const quality = resolveQuality({ params });
   if (!quality.gpu.webgl2) throw new Error('WebGL2 is not available in this browser.');
-  const renderer = createRenderer(canvas, quality);
+  const renderer = createRenderer(canvas, quality, { post: !params.hide.has('post') });
   renderer.info.autoReset = false;      // we reset once per frame so stats cover every pass (shadow, reflection, post)
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(SCENE.camera.fov, 1, SCENE.camera.near, SCENE.camera.far);

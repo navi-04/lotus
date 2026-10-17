@@ -14,6 +14,7 @@ import {
   SMAAEffect, SMAAPreset, Effect, BlendFunction,
 } from 'postprocessing';
 import { handleContextRestored } from '../core/crashGuard.js';
+import { createAdaptive } from './adaptive.js';
 
 const EXPOSURE_FRAG = /* glsl */ `
 uniform float exposure;
@@ -130,33 +131,15 @@ export function createPipeline(ctx) {
   }
   if (!composer) renderer.toneMapping = ACESFilmicToneMapping;
 
-  // ---- adaptive resolution ----------------------------------------------------------------------------------------
-  // Max quality is the default, so a weak device begins far above what it can sustain (a phone starts at DPR 3). Frame time scales
-  // roughly with pixel count, so the controller measures a short window, then jumps proportionally to the overload instead of
-  // creeping down in small steps; it only creeps back up on displays faster than 60 Hz (vsync caps a 60 Hz frame at ~16.7 ms).
-  let ema = 16.7, seen = 0, cooldown = 0, winT = 0, winN = 0, winMax = 0;
-  function adapt(dt) {
-    if (quality.fixedDpr || document.hidden) return;
-    if (++seen <= 6) return;                                   // first frames: lazy uploads / program links
-    const ms = Math.min(dt * 1000, 400);
-    winT += ms; winN++; winMax = Math.max(winMax, ms);
-    cooldown = Math.max(0, cooldown - dt);
-    if (winT < 700 || winN < 5) return;                        // decide on ~0.7 s windows
-    const avg = (winT - winMax) / (winN - 1);                  // drop the single worst frame (GC / compile hitch)
-    winT = 0; winN = 0; winMax = 0;
-    ema = seen <= 16 ? avg : ema + (avg - ema) * 0.5;
-    if (cooldown > 0) return;
-    const cap = Math.min(window.devicePixelRatio || 1, quality.dprMax);
-    if (ema > 22 && dpr > quality.dprMin + 1e-3) {
-      const over = ema / 16.7;
-      const next = over > 2.7 ? dpr * 0.6 : over > 1.9 ? dpr * 0.78 : dpr - 0.15;
-      setDpr(Math.max(quality.dprMin, next));
-      cooldown = over > 1.9 ? 1.2 : 2.5;
-    } else if (ema < 13.5 && dpr < cap - 1e-3) {
-      setDpr(Math.min(cap, dpr + 0.1));
-      cooldown = 4.0;
-    }
-  }
+  // ---- adaptive resolution -----------------------------------------------------------------------------------------
+  // Ultra is the default on every device, so a weak GPU or a phone starts far above what it can sustain. The logic (proportional
+  // drop, restore when pixels are not the bottleneck, cautious recovery on 60 Hz) lives in ./adaptive.js so it can be simulated.
+  const adaptive = createAdaptive({
+    dprMin: quality.dprMin,
+    getCap: () => Math.min(window.devicePixelRatio || 1, quality.dprMax),
+    getDpr: () => dpr,
+    setDpr: (d) => setDpr(d),
+  });
 
   function applySize() {
     renderer.setPixelRatio(dpr);
@@ -177,7 +160,7 @@ export function createPipeline(ctx) {
     const now = performance.now();
     const dt = (now - lastT) / 1000;
     lastT = now;
-    adapt(dt);
+    if (!quality.fixedDpr && !document.hidden) adaptive.update(dt);
     if (composer) {
       if (grade) grade.time = frame.time;
       composer.render(frame.dt || 0.016);
@@ -211,7 +194,7 @@ export function createPipeline(ctx) {
     }
   }
 
-  function info() { return { dpr, frameMs: ema, post: !!composer, dof: !!dof, msaa: quality.msaa, hdr }; }
+  function info() { return { dpr, frameMs: adaptive.ema, post: !!composer, dof: !!dof, msaa: quality.msaa, hdr }; }
   function dispose() { if (composer) composer.dispose(); }
 
   return { render, setSize, setDpr, getDpr, capture, info, dispose, composer };

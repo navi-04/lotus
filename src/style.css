@@ -112,7 +112,8 @@ body { position: fixed; inset: 0; }
 html[data-kind='birthday'] #toast { top: auto; bottom: calc(92px + var(--safe-b)); }
 #hud {
   position: fixed; right: calc(8px + var(--safe-r)); top: calc(8px + var(--safe-t)); z-index: 15; margin: 0; padding: 8px 10px; pointer-events: none;
-  font: 11px/1.4 ui-monospace, Consolas, monospace; color: #cfe; background: rgba(0, 0, 0, 0.45); border-radius: 8px; white-space: pre;
+  font: 11px/1.4 ui-monospace, Consolas, monospace; color: #cfe; background: rgba(0, 0, 0, 0.45); border-radius: 8px; white-space: pre-wrap;
+  max-width: calc(100vw - 16px); overflow-wrap: anywhere;
 }
 #hud[hidden] { display: none; }
 .fatal { position: fixed; inset: 0; z-index: 40; display: grid; place-content: center; text-align: center; padding: 24px; background: var(--bg); margin: 0; }

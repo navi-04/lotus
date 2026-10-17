@@ -87,6 +87,13 @@ async function boot() {
   if (!quality.gpu.webgl2) throw new Error('WebGL2 is not available in this browser.');
   const renderer = createRenderer(canvas, quality, { post: !params.hide.has('post') });
   renderer.info.autoReset = false;      // we reset once per frame so stats cover every pass (shadow, reflection, post)
+  // a shader the GPU refuses is otherwise only a line in a console nobody can open on a phone; keep it for ?debug=1
+  const shaderErrors = [];
+  renderer.debug.onShaderError = (gl, program, vs, fs) => {
+    const log = `${gl.getProgramInfoLog(program) || ''} ${gl.getShaderInfoLog(vs) || ''} ${gl.getShaderInfoLog(fs) || ''}`.replace(/\s+/g, ' ').trim();
+    shaderErrors.push(log.slice(0, 200));
+    console.error('A shader failed to build:', log);
+  };
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(SCENE.camera.fov, 1, SCENE.camera.near, SCENE.camera.far);
   const frame = createFrame();
@@ -189,7 +196,19 @@ async function boot() {
 
   setProgress(0.82, 'Compiling shaders…');
   await nextFrame();
-  try { if (renderer.compileAsync) await renderer.compileAsync(scene, camera); } catch (e) { ctx.log('compileAsync failed', e); }
+  const compileAll = async () => { try { if (renderer.compileAsync) await renderer.compileAsync(scene, camera); } catch (e) { ctx.log('compileAsync failed', e); } };
+  await compileAll();
+
+  // Prove the petals really draw on this GPU (lotus/petalLadder.js): if they do not, a simpler way of drawing them replaces the
+  // failing one here, behind the loader, before the first frame shows.
+  let petalReport = null;
+  if (mods.petals) {
+    setProgress(0.86, 'Checking the petals…');
+    try {
+      petalReport = await mods.petals.settle({ renderer, scene, anchor: stem ? stem.headAnchor : mods.petals.group, compile: compileAll, log: ctx.log });
+      if (petalReport.tried.length > 1 || !petalReport.ok) console.warn('Petals: ', JSON.stringify(petalReport.tried), '-> using', petalReport.id);
+    } catch (e) { console.warn('Petal check failed:', e); }
+  }
 
   /** draw the greeting (as it was when the button was pressed: `snap`) onto the captured picture */
   async function withGreeting(blob, snap) {
@@ -257,6 +276,15 @@ async function boot() {
   // ---- frame loop ------------------------------------------------------------------------------------------------------
   const hud = $('hud');
   if (params.debug && hud) hud.hidden = false;
+  /** ?debug=1: what the GPU is, what it allows, and which way the petals ended up being drawn (read it off a phone screenshot) */
+  const gl = renderer.getContext();
+  const limit = (p) => { try { return gl.getParameter(p); } catch (e) { return '?'; } };
+  const gpuInfo = () => {
+    const p = mods.petals;
+    const petals = !p ? 'petals: hidden'
+      : `petals: ${p.rung} ${p.info.NU}x${p.info.NS}, ${(p.info.vertices / 1000).toFixed(0)}k vertices\n  probe ${petalReport ? petalReport.tried.map((t) => `${t.id}=${t.px}px`).join(' > ') : 'did not run'}${petalReport && petalReport.forced ? ' (pinned)' : ''}`;
+    return `${quality.gpu.renderer || 'unknown GPU'}\nvarying ${limit(gl.MAX_VARYING_VECTORS)}  vs ${limit(gl.MAX_VERTEX_UNIFORM_VECTORS)}  fs ${limit(gl.MAX_FRAGMENT_UNIFORM_VECTORS)}  vtf ${limit(gl.MAX_VERTEX_TEXTURE_IMAGE_UNITS)}  attribs ${limit(gl.MAX_VERTEX_ATTRIBS)}\n${petals}\nshader errors: ${shaderErrors.length ? shaderErrors.join(' | ') : 'none'}`;
+  };
   let last = performance.now();
   let rendered = 0;
   let slowFor = 0, warnedSlow = false;
@@ -284,7 +312,7 @@ async function boot() {
       if (hudT > 0.4) {
         hudT = 0;
         const i = renderer.info.render;
-        hud.textContent = `${quality.tier}${quality.auto ? ' (auto)' : ''}  dpr ${inf.dpr.toFixed(2)}  ${inf.frameMs.toFixed(1)} ms\ncalls ${i.calls}  tris ${(i.triangles / 1000).toFixed(0)}k\nbloom ${frame.bloom.toFixed(2)}  rise ${frame.rise.toFixed(2)}  t ${frame.clock.toFixed(1)}`;
+        hud.textContent = `${quality.tier}${quality.auto ? ' (auto)' : ''}  dpr ${inf.dpr.toFixed(2)}  ${inf.frameMs.toFixed(1)} ms\ncalls ${i.calls}  tris ${(i.triangles / 1000).toFixed(0)}k\nbloom ${frame.bloom.toFixed(2)}  rise ${frame.rise.toFixed(2)}  t ${frame.clock.toFixed(1)}\n${gpuInfo()}`;
       }
     }
   }
@@ -312,7 +340,7 @@ async function boot() {
   requestAnimationFrame(loop);
 
   window.__lotus = {
-    ctx, mods, scene, camera, renderer, frame, controls: rig.controls, pipeline, rig, route, greeting, quality,
+    ctx, mods, scene, camera, renderer, frame, controls: rig.controls, pipeline, rig, route, greeting, quality, petalReport, shaderErrors,
     setCamera: rig.setView,
     setBloom(b) { if (frozenFromUrl) frozenFromUrl.bloom = b; },
     setTime(t) { state.scrub = t; },

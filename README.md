@@ -78,3 +78,7 @@ The camera starts low beside the bud, rises and pulls back as the petals open (a
 On phones MSAA is replaced by SMAA (multisampled half-float targets are unreliable on mobile GPUs).
 
 Reproduce with `npm run perf -- --url "http://localhost:5173/?quality=high&still=1&bloom=1&dpr=1" --uncapped`.
+
+## URL parameters
+
+`?quality=low|medium|high|ultra|auto` · `?route=home|nivashini` (pick the page when the path can't, e.g. `file://`) · `?bloom=0..1` (freeze the bloom stage) · `?rise=0..1` · `?t=seconds` · `?still=1` (fully deterministic frame) · `?cam=default|close|top|side|low|x,y,z,tx,ty,tz[,fov]` · `?cine=1` (use the cinematic camera on a frozen frame) · `?dpr=1.5` · `?hide=leaves,water,stamens,petals,pod,stem,env,post` · `?tm=neutral|agx|aces` · `?glow=0.3` · `?exposure=1` · `?seed=123` · `?debug=1` (stats overlay).

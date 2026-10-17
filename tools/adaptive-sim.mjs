@@ -44,8 +44,8 @@ const dpr = (r) => r.dpr.toFixed(2);
 // 1. a device far too slow for the starting resolution (like the measured 3x 720p case: ~130 ms/frame at DPR 3)
 {
   const r = simulate({ cap: 3, fixed: 8, perMPix: 15 }, 300);
-  const firstSlow = r.frames.filter((f) => f.t < 8).map((f) => f.dpr);
-  check('heavy: starts at 3x and is below 1.3x within 8 s', Math.min(...firstSlow) <= 1.3, `min dpr in first 8 s = ${Math.min(...firstSlow).toFixed(2)}`);
+  const firstSlow = r.frames.filter((f) => f.t < 10).map((f) => f.dpr);
+  check('heavy: starts at 3x and is below 1.3x within 10 s (1.5 s warm-up, then two slow windows per step)', Math.min(...firstSlow) <= 1.3, `min dpr in first 10 s = ${Math.min(...firstSlow).toFixed(2)}`);
   check('heavy: never goes below the floor', r.frames.every((f) => f.dpr >= 0.75 - 1e-9));
   const lateMs = r.frames.filter((f) => f.t > 20).map((f) => f.ms).sort((a, b) => a - b);
   check('heavy: settles on <= 33 ms frames (median)', lateMs[Math.floor(lateMs.length / 2)] <= 34, `median ${lateMs[Math.floor(lateMs.length / 2)].toFixed(1)} ms, final dpr ${dpr(r)}`);
@@ -58,6 +58,16 @@ const dpr = (r) => r.dpr.toFixed(2);
 {
   const r = simulate({ cap: 2, fixed: 2, perMPix: 2 }, 300);
   check('light 60 Hz: no changes at all', r.changes.length === 0, `${r.changes.length} changes, dpr ${dpr(r)}`);
+}
+
+// 2b. start-up work and hitches must not cost resolution (a real trace: a 97 ms first window dropped medium straight to its floor)
+{
+  const startup = simulate({ cap: 2, fixed: 2, perMPix: 2, extra: (t) => (t < 1.4 ? 100 : 0) }, 120);
+  check('start-up work inside the warm-up is ignored', startup.changes.length === 0, `${startup.changes.length} changes`);
+  const burst = simulate({ cap: 2, fixed: 2, perMPix: 2, extra: (t) => (t > 20 && t < 20.4 ? 120 : 0) }, 120);
+  check('a burst of slow frames inside one window is trimmed away', burst.changes.length === 0, `${burst.changes.length} changes`);
+  const spell = simulate({ cap: 2, fixed: 2, perMPix: 2, extra: (t) => (t > 20 && t < 20.7 ? 40 : 0) }, 120);
+  check('a single slow window is not enough to drop', spell.changes.length === 0, `${spell.changes.length} changes`);
 }
 
 // 3. a transient stall, then recovery to the full resolution on a 60 Hz display (the audit's "never recovers" case)

@@ -4,8 +4,10 @@
  *
  * Why it exists: Ultra is the default on every device, so a weak GPU or a phone starts far above what it can sustain. Frame time
  * scales roughly with the pixel count, therefore:
- *  - DROP: measure a ~0.7 s window (ignoring its single worst frame: GC / program-link hitches) and, when it is slower than
- *    ~45 fps, jump proportionally to the overload rather than creeping (a phone at 3x settles in seconds).
+ *  - DROP: measure ~0.7 s windows and, when two in a row are slower than ~45 fps, jump proportionally to the overload rather than
+ *    creeping (a phone at 3x settles in seconds). Two guards keep a transient from costing resolution: the first 1.5 s are ignored
+ *    (program links, texture uploads and lazy allocations make the start of any scene slow), and each window drops its slowest
+ *    20 % of frames before averaging (garbage collection, a late shader variant).
  *  - NOT RESOLUTION-BOUND: a 30 Hz refresh cap (battery saver) or a CPU-bound stall is slow at ANY resolution. If the whole
  *    descent to the floor bought nothing (judged over the descent, because vsync quantizes frame times into 16.7 ms steps and
  *    can hide a real gain until the next step), the resolution is restored and drops are suspended (2 min, then 8, then 32).
@@ -15,6 +17,9 @@
  *  - pause()/resume() keep deliberate slow frames (saving a 4K picture) out of the statistics.
  */
 const WINDOW_MS = 700;
+const WARMUP_S = 1.5;        // ignored at the start: first-use work, not the device's steady speed ...
+const WARMUP_FRAMES = 30;    // ... measured in clamped time AND in frames: the first render can hold a single multi-second program-link hitch
+const TRIM = 0.2;            // share of a window's slowest frames dropped before averaging
 const DROP_MS = 22;          // slower than ~45 fps -> reduce
 const QUIET_MS = 19.5;       // at (or under) a 60 Hz vsync -> may probe upwards
 const FAST_MS = 13.5;        // faster than 60 Hz -> climb freely
@@ -24,35 +29,50 @@ const EPS = 1e-3;
  * @param {{dprMin: number, getCap: () => number, getDpr: () => number, setDpr: (d: number) => void}} o
  */
 export function createAdaptive({ dprMin, getCap, getDpr, setDpr }) {
-  let seen = 0, winT = 0, winN = 0, winMax = 0, cooldown = 0, clock = 0;
+  const frames = new Float32Array(512);                  // the current window's frame times (ms)
+  let n = 0, winT = 0, cooldown = 0, clock = 0, seen = 0;
   let ema = 16.7, fresh = true, paused = false;
-  let stableT = 0, backoff = 20, probe = null;          // upward probing: probe = {from, at}
+  let streak = 0;                                        // consecutive windows slower than DROP_MS
+  let stableT = 0, backoff = 20, probe = null;           // upward probing: probe = {from, at}
   let episode = null;                                    // where the current slowdown began: {dpr0, ema0}
   let hold = 0, holdLen = 120;                           // seconds during which drops/probes are suspended after a "not resolution-bound" verdict
 
-  const change = (d, cd) => { setDpr(d); cooldown = cd; fresh = true; };
+  const change = (d, cd) => { setDpr(d); cooldown = cd; fresh = true; streak = 0; };
+
+  /** mean of the window without its slowest TRIM share (at least one frame) */
+  function trimmedMean() {
+    const a = frames.subarray(0, n).slice().sort();
+    const keep = Math.max(1, n - Math.max(1, Math.floor(n * TRIM)));
+    let s = 0;
+    for (let i = 0; i < keep; i++) s += a[i];
+    return s / keep;
+  }
 
   function update(dt) {
     if (paused) return;
-    clock += dt;
-    hold = Math.max(0, hold - dt);
-    if (++seen <= 6) return;                                       // first frames: lazy uploads / program links
+    const step = Math.min(dt, 0.1);                       // a multi-second hitch must not use up the warm-up (or a probe's wait) in one frame
+    clock += step;
+    hold = Math.max(0, hold - step);
+    seen++;
+    if (clock < WARMUP_S || seen < WARMUP_FRAMES) return;
     const ms = Math.min(dt * 1000, 400);
-    winT += ms; winN++; winMax = Math.max(winMax, ms);
+    if (n < frames.length) frames[n++] = ms;
+    winT += ms;
     cooldown = Math.max(0, cooldown - dt);
-    if (winT < WINDOW_MS || winN < 5) return;
-    const avg = (winT - winMax) / (winN - 1);
+    if (winT < WINDOW_MS || n < 5) return;
+    const avg = trimmedMean();
     const winSeconds = winT / 1000;
-    winT = 0; winN = 0; winMax = 0;
+    n = 0; winT = 0;
     ema = fresh ? avg : ema + (avg - ema) * 0.5;
     fresh = false;
+    streak = avg > DROP_MS ? streak + 1 : 0;
     if (cooldown > 0) return;
 
     const dpr = getDpr(), cap = getCap();
     const slow = ema > DROP_MS;
     if (!slow) episode = null;                                     // healthy again: that slowdown is over
 
-    if (slow && dpr > dprMin + EPS) {
+    if (streak >= 2 && dpr > dprMin + EPS) {                       // two slow windows in a row: not a hitch
       if (hold > 0) return;
       if (probe) {                                                 // the probe cost too much: back to exactly where it was
         const to = Math.max(dprMin, Math.min(probe.from, dpr - 0.01));
@@ -68,8 +88,8 @@ export function createAdaptive({ dprMin, getCap, getDpr, setDpr }) {
       return;
     }
 
-    if (slow) {                                                    // already at the floor and still slow: was it ever about pixels?
-      if (episode && episode.dpr0 > dpr + 0.2 && ema > episode.ema0 * 0.88) {
+    if (slow) {                                                    // at the floor and still slow: was it ever about pixels?
+      if (dpr <= dprMin + EPS && episode && episode.dpr0 > dpr + 0.2 && ema > episode.ema0 * 0.88) {
         const to = Math.min(cap, episode.dpr0);
         episode = null;
         hold = holdLen; holdLen = Math.min(holdLen * 4, 1920);
@@ -100,7 +120,7 @@ export function createAdaptive({ dprMin, getCap, getDpr, setDpr }) {
     update,
     /** keep deliberate slow frames (a 4K capture) out of the statistics */
     pause() { paused = true; },
-    resume() { paused = false; winT = 0; winN = 0; winMax = 0; cooldown = Math.max(cooldown, 3); fresh = true; },
+    resume() { paused = false; n = 0; winT = 0; streak = 0; cooldown = Math.max(cooldown, 3); fresh = true; },
     get ema() { return ema; },
     get paused() { return paused; },
   };

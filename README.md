@@ -16,3 +16,19 @@ npm run dev            # http://localhost:5173  (also served on your LAN)
 - **One double-clickable file:** `npm run build:single` → `dist-single/index.html` (≈830 KB, everything inlined, works from `file://`).
 
 > Don't open the source `index.html` by double-click — browsers block ES modules from `file://`. Use the dev server, or the single-file build.
+
+## Pages (slash routes)
+
+One app, several pages. The route only decides what is layered on top of the same pond:
+
+| URL | What you get |
+|---|---|
+| `/` and `/home` | the plain blooming lotus (title card + controls) |
+| `/nivashini` | the same bloom as a **birthday card**: a whisper (*A lotus for Nivashini*) as the stalk rises, then *HAPPY BIRTHDAY* appears letter by letter as the petals open, the name is written in gold script, and a short wish fades in while golden pollen-light lifts off the flower. The camera lowers the picture slightly (a lens shift) to leave sky for the lettering. |
+
+- **Dev:** `http://localhost:5173/nivashini` (on a phone: the *Network* URL + `/nivashini`). Any path works with the dev server; unknown paths show the home page.
+- **Build:** `npm run build` writes a real file per route — `dist/index.html`, `dist/home/index.html`, `dist/nivashini/index.html` — so it works on any static host (Netlify, GitHub Pages, S3, nginx …) with **no rewrite rules**; `/nivashini` simply redirects to `/nivashini/` like every static host does. `npm run preview` behaves the same.
+- **Double-click:** `npm run build:single` writes `dist-single/index.html` (home) **and** `dist-single/nivashini.html` — the same self-contained file, the file name selects the page. `index.html?route=nivashini` also works.
+- **The camera icon on `/nivashini` saves the finished card** (render + lettering) as `happy-birthday-nivashini.png`, up to 4K.
+- **Change the words / add a person:** edit `src/app/routes.js` — each route has its `greeting` (`whisper`, `headline`, `name`, `wish`). Copy the `nivashini` entry, change the id and the words, and `npm run build` emits the new page. Timing of each line is `REVEAL` at the top of `src/ui/greeting.js`.
+- Screen readers get the greeting as a normal heading; with *reduce motion* on, the lettering cross-fades instead of writing itself.

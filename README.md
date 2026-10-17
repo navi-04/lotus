@@ -45,3 +45,17 @@ One app, several pages. The route only decides what is layered on top of the sam
 | Keyboard | `Space` play/pause · `R` replay · `C` capture · `F` fullscreen · `Q` quality |
 
 The camera starts low beside the bud, rises and pulls back as the petals open (about 38 s), then hands over to you on your first touch. After ~14 s without input it drifts in a slow idle orbit.
+
+## What you're looking at
+
+| Part | How it's made |
+|---|---|
+| **Petals** (22, 4 whorls) | One merged mesh. The CPU integrates each petal's inextensible centre line from a bending-angle law every frame into two tiny float textures; the GPU builds the cupped cross-section, twist, margin ruffle and normals. Staggered per-petal schedules make the unfurl cascade from outer to inner whorls — tips loosen first, bases swing out later. |
+| **Petal skin** | Thin-translucent-sheet shading inside three's light loop: wrap diffuse + back-lit diffuse transmission + forward-scatter lobe (petals *glow* where the sun shines through), light from the far side from the sky, satin sheen, dense anastomosing veins (colour + bump), pale-green-cream → blush → rose gradient, different inner/outer faces. |
+| **Pod** | Obconical receptacle with 19 real carpel recesses, seeds and stigmas, basal collar, and sepals that clasp the bud and fall away as it opens. It grows as the flower matures. |
+| **Stamens** | 110–340 GPU-instanced filaments with grooved golden anthers and club tips, bending with bloom and wind. |
+| **Stalk** | Rebuilt each frame along a calibrated S-curve; rises from beneath the water (spawning ripples), bud nods then straightens, cantilever sway, instanced prickles. |
+| **Leaves** | Floating pads that rest on the water and emergent funnel leaves; margins, tilt and flutter in the vertex stage; glaucous waxy bloom, radial veins that fork twice, back-lit lamina, lotus-effect water beads. |
+| **Water** | Mirrored-camera planar reflection (half-float HDR), Fresnel, scrolling wave normals, expanding ripple rings, ambient raindrops, sun glitter, noise-driven ground mist, darkening under pads. |
+| **Sky & light** | HDR dawn sky with sun halo and cirrus; the same sky is baked to an image-based light; shadow-casting sun with a texel-snapped frustum that follows the flower; haze, distant tree line, bokeh discs, sunlit pollen motes. |
+| **Post** | Half-float HDR + MSAA, bloom, depth of field focused on the flower, Khronos *Neutral* tone mapping, split-tone grade, film grain + dither. |

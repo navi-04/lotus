@@ -160,8 +160,12 @@ export function resolveQuality({ gl, params = getParams() } = {}) {
   };
 }
 
-/** Persist the user's explicit choice (a tier or 'auto') and clear any automatic step-down. Caller reloads the page afterwards. */
+/**
+ * Persist the user's explicit choice (a tier or 'auto') and clear any automatic step-down. Caller reloads the page afterwards.
+ * Returns false when the pick could not be stored (blocked storage): the caller then keeps it in the URL instead.
+ */
 export function storeQuality(value) {
-  local.set(STORE_KEY, isChoice(value) ? value : null);
+  const ok = local.set(STORE_KEY, isChoice(value) ? value : null);
   clearSafe();
+  return ok;
 }

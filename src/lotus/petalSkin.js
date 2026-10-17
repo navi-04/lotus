@@ -78,9 +78,11 @@ float petalVeins(vec2 st, float seed, float N){
 vec3 petalToLinear(vec3 c){ return pow(max(c, vec3(0.0)), vec3(2.2)); }
 `;
 
-/** diffuseColor / thickness for the petal (runs after <map_fragment>) */
-const GLSL_SURFACE = /* glsl */ `
-{
+/**
+ * diffuseColor / thickness for the petal (runs after <map_fragment>): a head that picks the face colours, then a tail shared by
+ * both flavours. The lite head skips the noise, the veins and every derivative - it is the fallback for GPUs that cannot take the full one.
+ */
+const GLSL_SURFACE_HEAD_FULL = /* glsl */ `
   float s = vPetalUv.x, u = vPetalUv.y;
   float e = abs(2.0 * s - 1.0);
   float whorl = vPetal.y, rnd = vPetal.z, open = vPetal.w;
@@ -103,7 +105,27 @@ const GLSL_SURFACE = /* glsl */ `
   inner = mix(inner, inner * vec3(0.96, 0.84, 0.92), smoothstep(0.72, 1.0, e) * smoothstep(0.4, 0.9, u) * 0.6);
   float li = dot(inner, vec3(0.333));
   inner = mix(vec3(li), inner, 1.0 + 0.35 * (pink - 1.0));
+`;
 
+const GLSL_SURFACE_HEAD_LITE = /* glsl */ `
+  float s = vPetalUv.x, u = vPetalUv.y;
+  float e = abs(2.0 * s - 1.0);
+  float whorl = vPetal.y, rnd = vPetal.z, open = vPetal.w;
+  float pink = clamp(mix(0.80, 1.18, rnd) * mix(1.12, 0.84, whorl), 0.5, 1.25);
+  float uw = clamp(u + e * 0.07 * smoothstep(0.3, 0.9, u), 0.0, 1.0);
+
+  float vein = 0.0;
+  gVein = 0.0;
+  gUnd = 0.5;
+
+  vec3 inner = petalInnerRamp(uw, pink);
+  vec3 outer = petalOuterRamp(uw, whorl);
+  inner = mix(inner, inner * vec3(0.96, 0.84, 0.92), smoothstep(0.72, 1.0, e) * smoothstep(0.4, 0.9, u) * 0.6);
+  float li = dot(inner, vec3(0.333));
+  inner = mix(vec3(li), inner, 1.0 + 0.35 * (pink - 1.0));
+`;
+
+const GLSL_SURFACE_TAIL = /* glsl */ `
   vec3 albSRGB = gl_FrontFacing ? inner : outer;
   vec3 alb = petalToLinear(albSRGB);
   diffuseColor.rgb = alb;
@@ -115,8 +137,10 @@ const GLSL_SURFACE = /* glsl */ `
   gAlbedoAmb = pow(alb, vec3(1.12));
   gAO = mix(1.0, smoothstep(0.0, 0.45, u), 0.10 + 0.16 * (1.0 - open)) * (1.0 - 0.10 * vPetalGeo.x * (1.0 - u));
   gSheenMask = uTrans2.w * (0.75 + 0.5 * smoothstep(0.1, 0.8, u)) * (1.0 - 0.35 * vein);
-}
 `;
+
+const GLSL_SURFACE = `\n{${GLSL_SURFACE_HEAD_FULL}${GLSL_SURFACE_TAIL}}\n`;
+const GLSL_SURFACE_LITE = `\n{${GLSL_SURFACE_HEAD_LITE}${GLSL_SURFACE_TAIL}}\n`;
 
 const GLSL_ROUGH = /* glsl */ `
 roughnessFactor = clamp(roughnessFactor + (gVein - 0.25) * 0.10 + (pVN(vPetalUv * vec2(9.0, 5.0)) - 0.5) * 0.12, 0.3, 0.9);
@@ -172,12 +196,13 @@ const GLSL_INDIRECT = /* glsl */ `
 
 /**
  * @param {import('../main.js').Ctx} ctx
- * @param {object} [opts]
+ * @param {{lite?: boolean}} [opts]  lite: no noise, veins, bump or derivatives - the fallback for GPUs that cannot take the full shader
  * @returns {{ material: MeshPhysicalMaterial, uniforms: object, update(frame): void, dispose(): void }}
  */
 export function createPetalSkin(ctx, opts = {}) {
   const tier = (ctx && ctx.quality && ctx.quality.tier) || 'high';
-  const full = tier !== 'low';
+  const lite = !!opts.lite;
+  const full = tier !== 'low' && !lite;
 
   const material = new MeshPhysicalMaterial({
     color: 0xffffff,
@@ -209,12 +234,12 @@ export function createPetalSkin(ctx, opts = {}) {
   material.userData.uniforms = U;
 
   addPatch(material, {
-    key: `petal-skin-v2-${full ? 'F' : 'L'}`,
+    key: `petal-skin-v2-${lite ? 'X' : full ? 'F' : 'L'}`,
     uniforms: U,
     fragment: (f) => {
       f = inject(f, 'lights_physical_pars_fragment', GLSL_PARS + GLSL_RE_DIRECT);
-      f = inject(f, 'map_fragment', GLSL_SURFACE);
-      f = inject(f, 'roughnessmap_fragment', GLSL_ROUGH);
+      f = inject(f, 'map_fragment', lite ? GLSL_SURFACE_LITE : GLSL_SURFACE);
+      if (!lite) f = inject(f, 'roughnessmap_fragment', GLSL_ROUGH);
       if (full) f = inject(f, 'normal_fragment_maps', GLSL_BUMP);
       f = inject(f, 'lights_physical_fragment', '#ifdef USE_SHEEN\n material.sheenColor *= gSheenMask;\n#endif');
       f = inject(f, 'lights_fragment_end', 'material.diffuseContribution = gAlbedoAmb;', 'before');

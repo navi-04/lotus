@@ -82,3 +82,22 @@ Reproduce with `npm run perf -- --url "http://localhost:5173/?quality=high&still
 ## URL parameters
 
 `?quality=low|medium|high|ultra|auto` · `?route=home|nivashini` (pick the page when the path can't, e.g. `file://`) · `?bloom=0..1` (freeze the bloom stage) · `?rise=0..1` · `?t=seconds` · `?still=1` (fully deterministic frame) · `?cam=default|close|top|side|low|x,y,z,tx,ty,tz[,fov]` · `?cine=1` (use the cinematic camera on a frozen frame) · `?dpr=1.5` · `?hide=leaves,water,stamens,petals,pod,stem,env,post` · `?tm=neutral|agx|aces` · `?glow=0.3` · `?exposure=1` · `?seed=123` · `?debug=1` (stats overlay).
+
+## Project layout
+
+```
+index.html, src/style.css          shell, loader, UI styling
+src/main.js                        boot sequence, frame loop, UI actions, QA hooks
+src/core/                          constants, quality tiers, timeline, params, seeded rng, shader patching, compact noise
+src/lotus/                         petals (+ petalSkin, petalContract), pod, stamens, stem, leaves
+src/world/                         environment (sky, IBL, sun, fog), envBackdrop, envSky, water, sparkles (birthday pages)
+src/render/                        renderer + post pipeline (adaptive resolution, capture)
+src/app/cameraRig.js               cinematic camera + orbit hand-over (+ lens shift)
+src/app/routes.js                  the page table: /, /home, /nivashini ... (shared with the build)
+src/ui/controls.js                 control bar
+src/ui/greeting.js                 birthday lettering: reveal driven by the timeline, saved-picture painter
+src/assets/fonts/                  Allura + Cormorant Garamond (SIL OFL, bundled - see README.txt there)
+tools/                             headless-browser dev tools (below) + vite-routes.mjs (per-route pages at build time)
+```
+
+Everything is deterministic: the same seed gives the same pond, and `?still=1` makes a frame reproducible.

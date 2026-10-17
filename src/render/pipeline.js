@@ -155,18 +155,23 @@ export function createPipeline(ctx) {
   function getDpr() { return dpr; }
 
   let lastT = performance.now();
-  function render(frame) {
-    if (lost) return;
-    const now = performance.now();
-    const dt = (now - lastT) / 1000;
-    lastT = now;
-    if (!quality.fixedDpr && !document.hidden) adaptive.update(dt);
+  let capturing = false;
+  /** one frame, no bookkeeping (capture() draws through this as well) */
+  function draw(frame) {
     if (composer) {
       if (grade) grade.time = frame.time;
       composer.render(frame.dt || 0.016);
     } else {
       renderer.render(scene, ctx.camera);
     }
+  }
+  function render(frame) {
+    if (lost || capturing) return;                 // a 4K capture owns the canvas until the PNG is encoded
+    const now = performance.now();
+    const dt = (now - lastT) / 1000;
+    lastT = now;
+    if (!quality.fixedDpr && !document.hidden) adaptive.update(dt);
+    draw(frame);
   }
 
   /** Render one still at up to width x height (long side clamped to the GPU limit) and return a PNG Blob. */
@@ -177,20 +182,27 @@ export function createPipeline(ctx) {
     const cw = Math.max(2, Math.floor(W * k)), ch = Math.max(2, Math.floor(H * k));
     const prevDpr = dpr, prevW = width, prevH = height;
     const prevAspect = ctx.camera.aspect;
+    // While the 4K frame is encoded the main loop must stay off the canvas, and these deliberately slow frames must not reach the
+    // adaptive controller: it used to read them as "this device is slow" and drop the live resolution after every saved picture.
+    capturing = true;
+    adaptive.pause();
     try {
       renderer.setPixelRatio(1);
       renderer.setSize(cw, ch, false);
       if (composer) composer.setSize(cw, ch, false);
       ctx.camera.aspect = cw / ch;
       ctx.camera.updateProjectionMatrix();
-      render(ctx.frame);
-      render(ctx.frame);
+      draw(ctx.frame);
+      draw(ctx.frame);
       return await new Promise((resolve, reject) => canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('toBlob failed'))), 'image/png'));
     } finally {
       ctx.camera.aspect = prevAspect;
       ctx.camera.updateProjectionMatrix();
       width = prevW; height = prevH; dpr = prevDpr;
       applySize();
+      capturing = false;
+      adaptive.resume();
+      lastT = performance.now();
     }
   }
 

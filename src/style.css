@@ -87,3 +87,29 @@ body { position: fixed; inset: 0; }
 .scrub input::-moz-range-progress { height: 4px; border-radius: 4px; background: var(--accent); }
 .scrub input::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 18px; height: 18px; margin-top: -7px; border-radius: 50%; background: #fff; box-shadow: 0 1px 8px rgba(0, 0, 0, 0.5); border: 0; }
 .scrub input::-moz-range-thumb { width: 18px; height: 18px; border-radius: 50%; background: #fff; border: 0; box-shadow: 0 1px 8px rgba(0, 0, 0, 0.5); }
+
+#menu {
+  position: absolute; right: 8px; bottom: calc(100% + 10px); min-width: 150px; padding: 8px; display: grid; gap: 2px;
+  background: rgba(24, 19, 22, 0.78); border: 1px solid var(--glass-line); border-radius: 18px;
+  -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
+}
+#menu[hidden] { display: none; }
+#menu p { margin: 2px 10px 6px; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-dim); }
+#menu button { appearance: none; border: 0; background: transparent; color: var(--ink); text-align: left; padding: 11px 12px; border-radius: 12px; font: inherit; cursor: pointer; min-height: 44px; }
+#menu button:hover { background: rgba(255, 255, 255, 0.10); }
+#menu button[aria-checked='true'] { background: rgba(240, 140, 180, 0.22); }
+#menu button[aria-checked='true']::after { content: ' ✓'; color: var(--accent); }
+#menu button small { margin-left: 6px; font-size: 11px; letter-spacing: 0.02em; color: var(--ink-dim); }
+
+#toast {
+  position: fixed; left: 50%; top: calc(18px + var(--safe-t)); z-index: 25; transform: translate(-50%, -10px); opacity: 0; pointer-events: none;
+  padding: 10px 16px; border-radius: 999px; background: var(--glass); border: 1px solid var(--glass-line); max-width: calc(100vw - 40px);
+  -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); transition: opacity 0.4s ease, transform 0.4s ease; text-align: center;
+}
+#toast.show { opacity: 1; transform: translate(-50%, 0); }
+#hud {
+  position: fixed; right: calc(8px + var(--safe-r)); top: calc(8px + var(--safe-t)); z-index: 15; margin: 0; padding: 8px 10px; pointer-events: none;
+  font: 11px/1.4 ui-monospace, Consolas, monospace; color: #cfe; background: rgba(0, 0, 0, 0.45); border-radius: 8px; white-space: pre;
+}
+#hud[hidden] { display: none; }
+.fatal { position: fixed; inset: 0; z-index: 40; display: grid; place-content: center; text-align: center; padding: 24px; background: var(--bg); margin: 0; }

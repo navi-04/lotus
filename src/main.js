@@ -195,9 +195,10 @@ async function boot() {
     seek: (f) => { state.scrub = f * TIMELINE.total; frame.clock = state.scrub; },   // also commit the clock so a quick tap sticks
     qualityName: quality.auto ? 'auto' : quality.tier,
     setQuality(q) {
-      storeQuality(q);
+      const stored = storeQuality(q);
       const u = new URL(location.href);
-      u.searchParams.delete('quality');
+      // With storage blocked (cookies off, some in-app browsers) the pick travels in the URL instead of silently coming back as Ultra.
+      if (stored) u.searchParams.delete('quality'); else u.searchParams.set('quality', q);
       location.href = u.toString();
     },
     canFullscreen: !!(document.documentElement.requestFullscreen || document.documentElement.webkitRequestFullscreen),

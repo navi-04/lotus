@@ -12,6 +12,8 @@
     "shot": "node tools/shot.mjs",
     "qa": "node tools/qa.mjs",
     "perf": "node tools/perf.mjs",
+    "test:unit": "node tools/crash-guard-test.mjs && node tools/adaptive-sim.mjs && node tools/routes-check.mjs && node tools/quality-check.mjs",
+    "check": "npm run test:unit && npm run build",
     "test:ui": "node tools/ui-test.mjs",
     "test:routes": "node tools/route-test.mjs",
     "card": "node tools/card.mjs"

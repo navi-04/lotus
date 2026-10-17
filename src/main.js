@@ -251,9 +251,9 @@ async function boot() {
 
     // gentle hint when even the lowest resolution can't hold frame rate
     const inf = pipeline.info();
-    if (!warnedSlow && !quality.fixedDpr && quality.tier !== 'low' && inf.dpr <= quality.dprMin + 0.01 && inf.frameMs > 30) {
+    if (!warnedSlow && !quality.fixedDpr && quality.tier !== 'low' && inf.dpr <= quality.dprMin + 0.01 && inf.frameMs > 38) {
       slowFor += dt;
-      if (slowFor > 6) { warnedSlow = true; ui.toast('Running slowly — try Quality › Medium or Low', 6000); }
+      if (slowFor > 6) { warnedSlow = true; ui.toast(`Running slowly — try Quality › ${quality.tier === 'medium' ? 'Low' : 'Medium'}`, 6000); }
     } else slowFor = Math.max(0, slowFor - dt);
 
     if (hud && !hud.hidden) {

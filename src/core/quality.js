@@ -55,7 +55,8 @@ function readGpuFromContext(gl) {
 export function sniffGpu() {
   try {
     const c = document.createElement('canvas');
-    const gl = c.getContext('webgl2') || c.getContext('webgl');
+    const attrs = { powerPreference: 'high-performance' };         // judge the same GPU the renderer will use (hybrid laptops)
+    const gl = c.getContext('webgl2', attrs) || c.getContext('webgl', attrs);
     if (!gl) return { renderer: '', vendor: '', webgl2: false, maxTexture: 0, maxSamples: 0 };
     const info = readGpuFromContext(gl);
     const lose = gl.getExtension('WEBGL_lose_context');

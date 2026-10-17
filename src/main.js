@@ -191,15 +191,15 @@ async function boot() {
   await nextFrame();
   try { if (renderer.compileAsync) await renderer.compileAsync(scene, camera); } catch (e) { ctx.log('compileAsync failed', e); }
 
-  /** draw the greeting (as it is on screen right now) onto the captured picture */
-  async function withGreeting(blob) {
+  /** draw the greeting (as it was when the button was pressed: `snap`) onto the captured picture */
+  async function withGreeting(blob, snap) {
     const bmp = await createImageBitmap(blob);
     const c = document.createElement('canvas');
     c.width = bmp.width; c.height = bmp.height;
     const g = c.getContext('2d');
     g.drawImage(bmp, 0, 0);
     if (bmp.close) bmp.close();
-    greeting.paintOnto(g, c.width, c.height);
+    greeting.paintOnto(g, c.width, c.height, snap);
     return await new Promise((res, rej) => c.toBlob((b) => (b ? res(b) : rej(new Error('toBlob failed'))), 'image/png'));
   }
 
@@ -225,6 +225,9 @@ async function boot() {
       else (el.requestFullscreen || el.webkitRequestFullscreen).call(el);
     },
     async capture() {
+      // Measure the lettering NOW, before the 4K render and the asynchronous encode: the picture is of this exact frame, and a
+      // rotation, a resize or seconds of timeline passing while it is saved cannot move or advance the text (see greeting.snapshot).
+      const snap = greeting ? greeting.snapshot() : null;
       const a = camera.aspect;
       const W = a >= 1 ? 3840 : Math.round(3840 * a);
       const H = a >= 1 ? Math.round(3840 / a) : 3840;
@@ -233,7 +236,7 @@ async function boot() {
       let filename = 'lotus-bloom.png';
       if (greeting) {
         // the lettering is DOM text over the canvas, so paint it onto the picture too: the saved image is the finished card
-        try { blob = await withGreeting(blob); filename = `happy-birthday-${route.id}.png`; } catch (e) { ctx.log('greeting not added to the picture', e); }
+        try { blob = await withGreeting(blob, snap); filename = `happy-birthday-${route.id}.png`; } catch (e) { ctx.log('greeting not added to the picture', e); }
       }
       const file = new File([blob], filename, { type: 'image/png' });
       if (quality.isMobile && navigator.canShare && navigator.canShare({ files: [file] })) {

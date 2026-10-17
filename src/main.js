@@ -5,7 +5,8 @@
  */
 import * as THREE from 'three';
 import { getParams } from './core/params.js';
-import { resolveQuality, storeQuality, armCrashGuard } from './core/quality.js';
+import { resolveQuality, storeQuality } from './core/quality.js';
+import { armCrashGuard } from './core/crashGuard.js';
 import { SCENE, SUN, TIMELINE } from './core/constants.js';
 import { makeRng } from './core/rng.js';
 import { createFrame, stepFrame, smoothstep } from './core/timeline.js';
@@ -68,7 +69,7 @@ async function boot() {
   setProgress(0.04, route.loaderText || 'Preparing the pond…');
   await nextFrame();
 
-  const guard = armCrashGuard();          // a boot that dies before rendering steps the default quality down next time
+  const guard = await armCrashGuard();    // a boot that dies before rendering steps the default quality down next time
   const canvas = $('scene');
   const quality = resolveQuality({ params });
   if (!quality.gpu.webgl2) throw new Error('WebGL2 is not available in this browser.');

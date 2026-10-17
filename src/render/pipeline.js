@@ -13,7 +13,7 @@ import {
   EffectComposer, RenderPass, EffectPass, BloomEffect, DepthOfFieldEffect, ToneMappingEffect, ToneMappingMode, VignetteEffect,
   SMAAEffect, SMAAPreset, Effect, BlendFunction,
 } from 'postprocessing';
-import { noteContextLoss } from '../core/quality.js';
+import { handleContextRestored } from '../core/crashGuard.js';
 
 const EXPOSURE_FRAG = /* glsl */ `
 uniform float exposure;
@@ -93,7 +93,11 @@ export function createPipeline(ctx) {
   // ---- context loss ------------------------------------------------------------------------------------------------
   let lost = false;
   canvas.addEventListener('webglcontextlost', (e) => { e.preventDefault(); lost = true; });
-  canvas.addEventListener('webglcontextrestored', () => { lost = false; noteContextLoss(); location.reload(); });
+  canvas.addEventListener('webglcontextrestored', () => {
+    lost = false;
+    if (handleContextRestored({ pinned: quality.source === 'url' })) { location.reload(); return; }
+    window.dispatchEvent(new CustomEvent('lotus:context-stuck'));      // reloading again would loop: stay put, the app tells the user
+  });
 
   let composer = null, dof = null, bloom = null, exposureFx = null, grade = null, tone = null;
   const hdr = renderer.extensions.has('EXT_color_buffer_float') || renderer.extensions.has('EXT_color_buffer_half_float');

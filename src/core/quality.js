@@ -4,7 +4,7 @@
  * DEFAULT = ULTRA, everywhere. "Auto" (match the device) is opt-in via the Quality menu / ?quality=auto. What keeps max-by-default
  * safe on weak hardware: the adaptive pixel ratio (render/pipeline) and two silent safety nets - software renderers start on
  * 'low', and a context loss / a boot that never reached its first frames steps the *default* down one tier on the next load
- * (see armCrashGuard). An explicit ?quality= in the URL is always honoured as-is.
+ * (see core/crashGuard.js). An explicit ?quality= in the URL is always honoured as-is.
  *
  * The tier is chosen ONCE at boot (changing it = reload with ?quality=). Modules read `ctx.quality`:
  *   quality.tier        'low' | 'medium' | 'high' | 'ultra'   (pick your own per-module LOD tables from this)
@@ -22,6 +22,8 @@
  * to hold ~50-60 fps. Tier itself never changes at runtime.
  */
 import { getParams } from './params.js';
+import { local } from './storage.js';
+import { readSafe, clearSafe } from './crashGuard.js';
 
 export const TIER_ORDER = ['low', 'medium', 'high', 'ultra'];
 
@@ -35,16 +37,6 @@ export const TIERS = {
 export const DEFAULT_TIER = 'ultra';
 
 const STORE_KEY = 'lotus.quality';     // the user's explicit pick from the Quality menu: a tier or 'auto'
-const SAFE_KEY = 'lotus.safe';         // how many tiers to step down after a context loss / crashed boot (0..3)
-const BOOT_KEY = 'lotus.booting';      // '1' while a boot is in flight; left behind only if the tab died before rendering
-
-function lsGet(key) {
-  try { return localStorage.getItem(key); } catch (e) { return null; }       // private mode / blocked storage
-}
-function lsSet(key, value) {
-  try { if (value == null) localStorage.removeItem(key); else localStorage.setItem(key, String(value)); } catch (e) { /* ignore */ }
-}
-const safeSteps = () => Math.min(3, Math.max(0, parseInt(lsGet(SAFE_KEY) || '0', 10) || 0));
 
 function readGpuFromContext(gl) {
   const info = { renderer: '', vendor: '', webgl2: false, maxTexture: 0, maxSamples: 0 };
@@ -120,7 +112,7 @@ export function resolveQuality({ gl, params = getParams() } = {}) {
 
   // who decides: the URL (absolute) > the user's saved pick > the default (max)
   const fromUrl = isChoice(params.quality) ? params.quality : null;
-  const saved = lsGet(STORE_KEY);
+  const saved = local.get(STORE_KEY);
   const fromStore = !fromUrl && isChoice(saved) ? saved : null;
   const choice = fromUrl || fromStore || DEFAULT_TIER;
   const source = fromUrl ? 'url' : fromStore ? 'stored' : 'default';
@@ -133,7 +125,7 @@ export function resolveQuality({ gl, params = getParams() } = {}) {
   if (!fromUrl) {
     const software = /swiftshader|llvmpipe|software|basic render/i.test(gpu.renderer || '');
     if (software && TIER_ORDER.indexOf(tier) > 0) { tier = 'low'; demoted = 1; }
-    const steps = safeSteps();
+    const steps = readSafe();
     const idx = Math.max(0, TIER_ORDER.indexOf(tier) - steps);
     if (steps && idx !== TIER_ORDER.indexOf(tier)) { demoted = TIER_ORDER.indexOf(tier) - idx; tier = TIER_ORDER[idx]; }
   }
@@ -165,29 +157,6 @@ export function resolveQuality({ gl, params = getParams() } = {}) {
 
 /** Persist the user's explicit choice (a tier or 'auto') and clear any automatic step-down. Caller reloads the page afterwards. */
 export function storeQuality(value) {
-  lsSet(STORE_KEY, isChoice(value) ? value : null);
-  lsSet(SAFE_KEY, null);
-}
-
-/**
- * Crash-loop guard. Call once, first thing at boot: arms a flag that is cleared once frames are flowing (`disarm`) or the
- * page is left normally. If the previous boot left the flag behind, the tab was killed (out of GPU memory, driver reset) before
- * rendering, so the default steps down one tier. `noteContextLoss()` does the same for a lost WebGL context.
- * @returns {{crashed: boolean, disarm: () => void}}
- */
-export function armCrashGuard() {
-  const crashed = lsGet(BOOT_KEY) === '1';
-  if (crashed) lsSet(SAFE_KEY, Math.min(3, safeSteps() + 1));
-  lsSet(BOOT_KEY, '1');
-  const disarm = () => lsSet(BOOT_KEY, null);
-  if (typeof window !== 'undefined') {
-    window.addEventListener('pagehide', disarm);
-    document.addEventListener('visibilitychange', () => { if (document.hidden) disarm(); });
-  }
-  return { crashed, disarm };
-}
-
-/** The WebGL context was lost and came back: the page reloads, one tier lower unless the URL pins the tier. */
-export function noteContextLoss() {
-  lsSet(SAFE_KEY, Math.min(3, safeSteps() + 1));
+  local.set(STORE_KEY, isChoice(value) ? value : null);
+  clearSafe();
 }

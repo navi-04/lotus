@@ -177,6 +177,8 @@ export function createPipeline(ctx) {
   /** Render one still at up to width x height (long side clamped to the GPU limit) and return a PNG Blob. */
   async function capture({ width: W = 3840, height: H = 2160 } = {}) {
     const gl = renderer.getContext();
+    // On a lost context every gl.getParameter() returns null, which used to collapse the size to 2x2 and save an empty PNG.
+    if (lost || gl.isContextLost()) throw new Error('The GPU context is lost');
     const maxRB = Math.min(gl.getParameter(gl.MAX_RENDERBUFFER_SIZE), gl.getParameter(gl.MAX_TEXTURE_SIZE), quality.isMobile ? 3072 : 4096);
     const k = Math.min(1, maxRB / Math.max(W, H));
     const cw = Math.max(2, Math.floor(W * k)), ch = Math.max(2, Math.floor(H * k));

@@ -32,3 +32,16 @@ One app, several pages. The route only decides what is layered on top of the sam
 - **The camera icon on `/nivashini` saves the finished card** (render + lettering) as `happy-birthday-nivashini.png`, up to 4K.
 - **Change the words / add a person:** edit `src/app/routes.js` — each route has its `greeting` (`whisper`, `headline`, `name`, `wish`). Copy the `nivashini` entry, change the id and the words, and `npm run build` emits the new page. Timing of each line is `REVEAL` at the top of `src/ui/greeting.js`.
 - Screen readers get the greeting as a normal heading; with *reduce motion* on, the lettering cross-fades instead of writing itself.
+
+## Controls
+
+| | |
+|---|---|
+| **Drag / one finger** | orbit around the flower |
+| **Wheel / pinch** | zoom (pinch can also twist) |
+| **Play / Pause**, **Replay**, **timeline scrubber** | bottom bar (auto-hides; tap or move to bring it back) |
+| **Quality** | Ultra (default) · High · Medium · Low · Auto (reloads) |
+| **Camera icon** | renders a 4K picture and saves it (shares it on phones) |
+| Keyboard | `Space` play/pause · `R` replay · `C` capture · `F` fullscreen · `Q` quality |
+
+The camera starts low beside the bud, rises and pulls back as the petals open (about 38 s), then hands over to you on your first touch. After ~14 s without input it drifts in a slow idle orbit.

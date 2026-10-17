@@ -31,7 +31,7 @@ export const TIERS = {
   low:    { dprMax: 1.0, dprMin: 0.6,  msaa: 0, shadowMap: 0,    reflection: 0,    dof: false, bloomScale: 0.25, particles: 0.3,  lod: 0.5 },
   medium: { dprMax: 1.5, dprMin: 0.60, msaa: 0, shadowMap: 1024, reflection: 0.3,  dof: false, bloomScale: 0.35, particles: 0.5,  lod: 0.7 },
   high:   { dprMax: 2.0, dprMin: 0.70, msaa: 2, shadowMap: 2048, reflection: 0.5,  dof: true,  bloomScale: 0.5,  particles: 0.8, lod: 1.0 },
-  ultra:  { dprMax: 3.0, dprMin: 1.0,  msaa: 4, shadowMap: 4096, reflection: 0.75, dof: true,  bloomScale: 0.5,  particles: 1.0, lod: 1.4 },
+  ultra:  { dprMax: 3.0, dprMin: 0.75, msaa: 4, shadowMap: 4096, reflection: 0.75, dof: true,  bloomScale: 0.5,  particles: 1.0, lod: 1.4 },
 };
 
 export const DEFAULT_TIER = 'ultra';
@@ -135,7 +135,9 @@ export function resolveQuality({ gl, params = getParams() } = {}) {
 
   const dprCap = Math.min(dev.devicePixelRatio, base.dprMax);
   const fixedDpr = params.dpr != null;
-  const dprStart = fixedDpr ? params.dpr : dprCap;
+  // Phones start at 2x even when the screen is 3x: the render targets are allocated at the start pixel ratio, and a 3x start is the
+  // biggest memory spike of the whole boot. The adaptive controller climbs to the full ratio when the device has headroom.
+  const dprStart = fixedDpr ? params.dpr : (dev.isMobile ? Math.min(dprCap, 2) : dprCap);
 
   return {
     tier,

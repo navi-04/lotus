@@ -89,8 +89,13 @@ export function createCpuVariant(ctx, params, { NU, NS }) {
   mesh.castShadow = true;
   mesh.receiveShadow = true;
 
+  // the row tables are cheap and every frame (the camera reads frame.flowerRadius from them); rebuilding 17k vertices is not, so it waits
+  // until the flower has visibly moved: the bloom advanced, or the wind had time to flutter the petals
+  let builtAt = -1e9, builtBloom = -1;
   function surface(frame) {
     integ.step(frame);
+    if (frame.time - builtAt < 0.05 && Math.abs(frame.bloom - builtBloom) < 0.004) return;
+    builtAt = frame.time; builtBloom = frame.bloom;
     const { dataA, dataB } = integ;
     for (let p = 0; p < NP; p++) {
       const pr = params[p];

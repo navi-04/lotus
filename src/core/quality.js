@@ -36,6 +36,9 @@ export const TIERS = {
 
 export const DEFAULT_TIER = 'ultra';
 
+/** ceilings for the costs that stay the same however far the pixel ratio drops (applied on phones to every tier) */
+export const PHONE = { lod: 0.85, shadowMap: 1024, reflection: 0.4, dprStart: 1.5 };
+
 const STORE_KEY = 'lotus.quality';     // the user's explicit pick from the Quality menu: a tier or 'auto'
 
 function readGpuFromContext(gl) {
@@ -131,13 +134,26 @@ export function resolveQuality({ gl, params = getParams() } = {}) {
     const to = Math.max(0, at - readSafe());
     if (to < at) { demoted += at - to; tier = TIER_ORDER[to]; reason = reason || 'crash'; }
   }
-  const base = TIERS[tier];
+  const base = { ...TIERS[tier] };
+  // A phone screen is a few inches wide: the tier keeps every effect (shadows, reflection, depth of field, bloom ...) but the costs that
+  // do not shrink with the pixel ratio - geometry density, the shadow map, the reflection pass - are sized for it. Ultra stays Ultra.
+  if (dev.isMobile) {
+    base.lod = Math.min(base.lod, PHONE.lod);
+    if (base.shadowMap) base.shadowMap = Math.min(base.shadowMap, PHONE.shadowMap);
+    base.reflection = Math.min(base.reflection, PHONE.reflection);
+  }
+  // single-feature overrides from the URL (for measuring what each one costs): they replace the tier's value
+  if (params.shadow != null) base.shadowMap = Math.min(4096, Math.max(0, Math.round(params.shadow)));
+  if (params.refl != null) base.reflection = Math.min(1, Math.max(0, params.refl));
+  if (params.lod != null) base.lod = Math.min(2, Math.max(0.3, params.lod));
+  if (params.dof != null) base.dof = params.dof;
 
   const dprCap = Math.min(dev.devicePixelRatio, base.dprMax);
   const fixedDpr = params.dpr != null;
-  // Phones start at 2x even when the screen is 3x: the render targets are allocated at the start pixel ratio, and a 3x start is the
-  // biggest memory spike of the whole boot. The adaptive controller climbs to the full ratio when the device has headroom.
-  const dprStart = fixedDpr ? params.dpr : (dev.isMobile ? Math.min(dprCap, 2) : dprCap);
+  // Phones start at 1.5x even when the screen is 3x: the render targets are allocated at the start pixel ratio (a 3x start is the biggest
+  // memory spike of the whole boot) and the first seconds should not stutter while the governor finds the device's speed. It climbs to
+  // the full ratio on its own when the device has headroom.
+  const dprStart = fixedDpr ? params.dpr : (dev.isMobile ? Math.min(dprCap, PHONE.dprStart) : dprCap);
 
   return {
     tier,

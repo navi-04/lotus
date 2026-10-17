@@ -5,7 +5,7 @@
  * blocked storage are all checked deterministically - including the software-renderer-vs-saved-pick bug found in the audit.
  */
 import { getParams } from '../src/core/params.js';
-import { resolveQuality, storeQuality, TIERS, DEFAULT_TIER, TIER_ORDER } from '../src/core/quality.js';
+import { resolveQuality, storeQuality, TIERS, DEFAULT_TIER, TIER_ORDER, PHONE } from '../src/core/quality.js';
 
 let failed = 0, total = 0;
 const check = (name, ok, info = '') => { total++; if (!ok) failed++; console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${info ? '  ' + info : ''}`); };
@@ -88,12 +88,46 @@ check('a garbage step-down value is ignored', q('', { store: { 'lotus.safe': 'lo
   const d3 = q('', { dpr: 3 });
   check('desktop at 3x starts at 3x', d3.dprStart === 3 && d3.msaa === 4);
   const m = q('', { renderer: ADRENO, mobile: true, dpr: 3 });
-  check('phone at 3x: starts at 2x (smaller boot allocations), ceiling still 3, no MSAA (SMAA instead)', m.dprStart === 2 && m.dprMax === 3 && m.msaa === 0 && m.isMobile && m.tier === 'ultra', JSON.stringify({ start: m.dprStart, msaa: m.msaa, tier: m.tier }));
+  check('phone at 3x: starts at 1.5x (smaller boot allocations, a calm first few seconds), ceiling still 3, no MSAA (SMAA instead)', m.dprStart === 1.5 && m.dprMax === 3 && m.msaa === 0 && m.isMobile && m.tier === 'ultra', JSON.stringify({ start: m.dprStart, msaa: m.msaa, tier: m.tier }));
   const m15 = q('', { renderer: ADRENO, mobile: true, dpr: 1.5 });
   check('phone at 1.5x starts at 1.5x', m15.dprStart === 1.5);
+  const m1 = q('', { renderer: ADRENO, mobile: true, dpr: 1 });
+  check('phone at 1x starts at 1x', m1.dprStart === 1);
   const fixed = q('?dpr=1.25');
   check('?dpr pins the pixel ratio and switches adaptation off', fixed.fixedDpr && fixed.dprStart === 1.25 && fixed.dprMin === 1.25 && fixed.dprMax === 1.25);
   check('every tier keeps a sane floor below its ceiling', Object.values(TIERS).every((t) => t.dprMin < t.dprMax && t.dprMin > 0));
+}
+
+// ---- the phone profile: every effect stays, the costs that do not shrink with the pixel ratio are sized for a small screen ------------
+{
+  const d = q('', { dpr: 2 });
+  check('desktop Ultra is untouched: lod 1.4, 4096 shadows, 0.75 reflection, depth of field on', d.lod === 1.4 && d.shadowMap === 4096 && d.reflection === 0.75 && d.dof === true, JSON.stringify({ lod: d.lod, sh: d.shadowMap, refl: d.reflection }));
+  const m = q('', { renderer: ADRENO, mobile: true, dpr: 3 });
+  check('phone Ultra is still Ultra, with every effect on', m.tier === 'ultra' && m.dof === true && m.shadowMap > 0 && m.reflection > 0 && m.bloomScale === TIERS.ultra.bloomScale);
+  check('phone Ultra: lighter geometry (0.85), a 1024 shadow map, a 0.4 reflection', m.lod === PHONE.lod && m.shadowMap === 1024 && m.reflection === 0.4, JSON.stringify({ lod: m.lod, sh: m.shadowMap, refl: m.reflection }));
+  const mh = q('?quality=high', { renderer: ADRENO, mobile: true, dpr: 3 });
+  check('phone High gets the same ceilings', mh.lod === 0.85 && mh.shadowMap === 1024 && mh.reflection === 0.4);
+  const ml = q('?quality=low', { renderer: ADRENO, mobile: true, dpr: 3 });
+  check('phone Low keeps its own (lower) values: no shadows, no reflection, lod 0.5', ml.lod === 0.5 && ml.shadowMap === 0 && ml.reflection === 0);
+  const mm = q('?quality=medium', { renderer: ADRENO, mobile: true, dpr: 3 });
+  check('phone Medium keeps its own lower values (never raised by the ceiling)', mm.lod === 0.7 && mm.shadowMap === 1024 && mm.reflection === 0.3);
+}
+
+// ---- single-feature URL overrides (for measuring what each feature costs) ------------------------------------------------------------
+{
+  const o = q('?shadow=2048&refl=0.6&lod=1.2&dof=0');
+  check('?shadow ?refl ?lod ?dof replace the tier values', o.shadowMap === 2048 && o.reflection === 0.6 && o.lod === 1.2 && o.dof === false, JSON.stringify({ sh: o.shadowMap, refl: o.reflection, lod: o.lod, dof: o.dof }));
+  const mo = q('?shadow=2048&refl=0.6&lod=1.2', { renderer: ADRENO, mobile: true, dpr: 3 });
+  check('on a phone the URL overrides win over the phone ceilings', mo.shadowMap === 2048 && mo.reflection === 0.6 && mo.lod === 1.2);
+  const lo = q('?quality=low&dof=1&shadow=1024&refl=0.5');
+  check('overrides can switch a feature on in a lower tier', lo.dof === true && lo.shadowMap === 1024 && lo.reflection === 0.5);
+  const wild = q('?shadow=999999&refl=7&lod=99');
+  check('overrides are clamped (4096 / 1 / 2)', wild.shadowMap === 4096 && wild.reflection === 1 && wild.lod === 2, JSON.stringify({ sh: wild.shadowMap, refl: wild.reflection, lod: wild.lod }));
+  const low = q('?shadow=-5&refl=-1&lod=0');
+  check('overrides are clamped below too (0 / 0 / 0.3)', low.shadowMap === 0 && low.reflection === 0 && low.lod === 0.3, JSON.stringify({ sh: low.shadowMap, refl: low.reflection, lod: low.lod }));
+  const junk = q('?shadow=abc&refl=&lod=x&dof=maybe');
+  check('junk values are ignored', junk.shadowMap === 4096 && junk.reflection === 0.75 && junk.lod === 1.4 && junk.dof === true, JSON.stringify({ sh: junk.shadowMap, dof: junk.dof }));
+  check('a tier object is never mutated by an override (the next call is clean)', q('').shadowMap === 4096 && TIERS.ultra.shadowMap === 4096);
 }
 
 // ---- storing a pick ---------------------------------------------------------------------------------------------------------

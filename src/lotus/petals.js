@@ -21,9 +21,7 @@ import { local } from '../core/storage.js';
  *            settle(env: object): Promise<object>, watchFrame(frame: any): void, watchState(): object}}
  */
 export function createPetals(ctx) {
-  const mobile = !!(ctx.quality && ctx.quality.isMobile);
-  // a phone screen never shows the ultra density, and a lighter draw is one more thing a small GPU cannot choke on
-  const lod = Math.min((ctx.quality && ctx.quality.lod) || 1, mobile ? 1.0 : 1.4);
+  const lod = Math.min((ctx.quality && ctx.quality.lod) || 1, 1.4);     // quality.js already holds a phone to a lighter density
   const NU = Math.round(Math.min(Math.max(68 * lod, 32), 112));
   const NS = Math.round(Math.min(Math.max(30 * lod, 14), 48));
   const params = buildPetalParams(ctx.rng.fork('petals'));

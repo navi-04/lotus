@@ -23,7 +23,8 @@ const url = opt.url && opt.url !== true ? opt.url : 'http://localhost:5173/nivas
 const out = opt.out && opt.out !== true ? opt.out : 'shots/card.png';
 const mobile = !!opt.mobile;
 const W = parseInt(opt.w || (mobile ? 390 : 1280), 10), H = parseInt(opt.h || (mobile ? 844 : 720), 10);
-const t = parseFloat(opt.t ?? 38);
+const t = opt.t === true ? NaN : parseFloat(opt.t ?? 38);        // a bare --t used to become NaN and render a blank frame
+if (!Number.isFinite(t)) { console.log(JSON.stringify({ ok: false, error: '--t needs a number of seconds, e.g. --t 22' })); process.exit(2); }
 const exe = ['C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe', 'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe', 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe'].find((p) => fs.existsSync(p));
 
 const browser = await puppeteer.launch({

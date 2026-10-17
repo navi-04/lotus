@@ -5,10 +5,12 @@
  *   node tools/route-test.mjs                                   # dev server  http://localhost:5173
  *   node tools/route-test.mjs --base http://localhost:4173      # `npm run preview` (the built dist/, behaves like a static host)
  *   node tools/route-test.mjs --single dist-single              # also test the double-clickable file:// copies
+ *   node tools/route-test.mjs --base https://navi-04.github.io/lotus --static   # the live GitHub Pages site (case-sensitive, no SPA fallback)
  *
  * Checks, per page: the right route / title / data-kind, greeting + fonts only on the birthday page, no errors, ultra by default.
- * Then: quality overrides + safety nets, the greeting reveal states along the timeline, the quality menu, and "save picture".
- * Exit code 1 if anything fails.
+ * Then: quality overrides + safety nets (a dead boot, a step-down, two windows booting at once, blocked storage), the greeting reveal
+ * states along the timeline, the quality menu, and "save picture" (the file, the toast, the live resolution afterwards).
+ * Long-name layout needs the dev server (it imports the source modules). Exit code 1 if anything fails.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -25,6 +27,7 @@ for (let i = 0; i < argv.length; i++) {
 }
 const base = String(opt.base && opt.base !== true ? opt.base : 'http://localhost:5173').replace(/\/$/, '');
 const singleDir = opt.single && opt.single !== true ? opt.single : null;
+const staticHost = !!opt.static;                 // a real static host: paths are case-sensitive, unknown paths get 404.html, no SPA fallback
 const exe = ['C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe', 'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe', 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe', 'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe'].find((p) => fs.existsSync(p));
 const ARGS = ['--headless=new', '--no-sandbox', '--enable-webgl', '--ignore-gpu-blocklist', '--mute-audio', '--window-size=1100,700'];
 
@@ -35,14 +38,14 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const browser = await puppeteer.launch({ executablePath: process.env.CHROME_PATH || exe, headless: true, defaultViewport: null, args: [...ARGS, '--use-angle=d3d11'] });
 
 /** open a page, wait for the first frames, return {page, errors} */
-async function open(url, { viewport = { width: 1100, height: 700, deviceScaleFactor: 1 }, preload = null, mobile = false, br = browser } = {}) {
+async function open(url, { viewport = { width: 1100, height: 700, deviceScaleFactor: 1 }, preload = null, mobile = false, br = browser, clear = true } = {}) {
   const page = await br.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(String(e).slice(0, 200)));
   page.on('console', (m) => { if (m.type() === 'error' && !/favicon/i.test(m.text())) errors.push(m.text().slice(0, 200)); });
   await page.setViewport({ ...viewport, isMobile: mobile, hasTouch: mobile });
   // every page starts from a clean profile (pages share one browser), then gets its own preset, then the app boots
-  await page.evaluateOnNewDocument(`try { localStorage.clear(); sessionStorage.clear(); } catch (e) {}`);
+  if (clear) await page.evaluateOnNewDocument(`try { localStorage.clear(); sessionStorage.clear(); } catch (e) {}`);
   if (preload) await page.evaluateOnNewDocument(preload);
   await page.goto(url, { waitUntil: 'domcontentloaded' });
   await page.waitForFunction('window.__LOTUS_READY__ === true', { timeout: 120000, polling: 250 });
@@ -55,7 +58,7 @@ const probe = (page) => page.evaluate(() => {
   const g = document.getElementById('greeting');
   return {
     route: L.route.id, kind: L.route.kind, title: document.title, dataRoute: document.documentElement.dataset.route, dataKind: document.documentElement.dataset.kind,
-    tier: L.quality.tier, source: L.quality.source, auto: L.quality.auto, demoted: L.quality.demoted,
+    tier: L.quality.tier, source: L.quality.source, auto: L.quality.auto, demoted: L.quality.demoted, reason: L.quality.reason,
     greeting: !!L.greeting, greetingHidden: g.hidden, greetingText: g.textContent.trim().slice(0, 80), srHeading: (g.querySelector('.g-sr') || {}).textContent || '',
     sparkles: !!(L.mods && L.mods.sparkles), titleCard: !!document.getElementById('title'),
     fontsLoaded: [...document.fonts].filter((f) => f.status === 'loaded').map((f) => `${f.family.replace(/"/g, '')} ${f.weight} ${f.style}`),
@@ -68,7 +71,7 @@ const probe = (page) => page.evaluate(() => {
 const PAGES = [
   ['/', 'home'], ['/home', 'home'], ['/home/', 'home'], ['/nivashini', 'nivashini'], ['/nivashini/', 'nivashini'],
   ['/Nivashini', 'nivashini'], ['/NIVASHINI/', 'nivashini'], ['/nivashini/index.html', 'nivashini'], ['/unknown-page', 'home'], ['/?route=nivashini', 'nivashini'],
-];
+].filter(([p]) => !staticHost || !/^\/(Nivashini|NIVASHINI)/.test(p));          // a case-sensitive host cannot find those folders
 const TITLE = { home: 'Lotus — a blooming', nivashini: 'Happy Birthday Nivashini' };
 
 for (const [p, want] of PAGES) {
@@ -91,16 +94,21 @@ for (const [p, want] of PAGES) {
 
 // ---- 2. quality choices and safety nets --------------------------------------------------------------------------------
 const store = (o) => `try { ${Object.entries(o).map(([k, v]) => `localStorage.setItem(${JSON.stringify(k)}, ${JSON.stringify(v)})`).join(';')} } catch (e) {}`;
+// the step-down is stored as "<steps>@<epoch ms>" (it expires after a week); a boot flag is {id, t} guarded by a Web Lock named after the id
+const safeSteps = (n, ageDays = 0) => `try { localStorage.setItem('lotus.safe', '${n}@' + (Date.now() - ${ageDays} * 864e5)); } catch (e) {}`;
+const deadBoot = `try { localStorage.setItem('lotus.boot', JSON.stringify({ id: 'dead-boot', t: Date.now() - 20000 })); } catch (e) {}`;
 const QCASES = [
   ['URL ?quality=low wins', '/?quality=low', null, { tier: 'low', source: 'url' }],
   ['URL ?quality=high wins over a saved pick', '/?quality=high', store({ 'lotus.quality': 'medium' }), { tier: 'high', source: 'url' }],
   ['saved Medium is honoured', '/', store({ 'lotus.quality': 'medium' }), { tier: 'medium', source: 'stored' }],
   ['saved Auto = match the device (not forced to ultra)', '/', store({ 'lotus.quality': 'auto' }), { auto: true, source: 'stored' }],
   ['garbage in storage falls back to ultra', '/', store({ 'lotus.quality': 'turbo' }), { tier: 'ultra', source: 'default' }],
-  ['one automatic step-down after a context loss / crash', '/', store({ 'lotus.safe': '1' }), { tier: 'high', source: 'default', demoted: 1 }],
-  ['two steps down', '/', store({ 'lotus.safe': '2' }), { tier: 'medium', demoted: 2 }],
-  ['an explicit URL tier ignores the step-down', '/?quality=ultra', store({ 'lotus.safe': '2' }), { tier: 'ultra', demoted: 0 }],
-  ['a boot that never rendered (left-over flag) steps down once', '/', store({ 'lotus.booting': '1' }), { tier: 'high', demoted: 1 }],
+  ['one automatic step-down after a context loss / crash', '/', safeSteps(1), { tier: 'high', source: 'default', demoted: 1, reason: 'crash' }],
+  ['two steps down', '/', safeSteps(2), { tier: 'medium', demoted: 2 }],
+  ['an explicit URL tier ignores the step-down', '/?quality=ultra', safeSteps(2), { tier: 'ultra', demoted: 0 }],
+  ['a saved pick is lowered by a later crash step-down too', '/', store({ 'lotus.quality': 'ultra' }) + safeSteps(1), { tier: 'high', source: 'stored', demoted: 1 }],
+  ['a step-down older than a week has expired', '/', safeSteps(3, 8), { tier: 'ultra', demoted: 0 }],
+  ['a boot that died before rendering (flag left, its lock gone) steps down once', '/', deadBoot, { tier: 'high', demoted: 1, reason: 'crash' }],
 ];
 for (const [name, p, preload, want] of QCASES) {
   const { page } = await open(`${base}${p}`, { preload });
@@ -113,8 +121,38 @@ for (const [name, p, preload, want] of QCASES) {
   // the flag set by a healthy boot must be cleared once frames flow
   const { page } = await open(`${base}/`);
   await sleep(1500);
-  const left = await page.evaluate(() => { try { return localStorage.getItem('lotus.booting'); } catch (e) { return 'n/a'; } });
+  const left = await page.evaluate(() => { try { return localStorage.getItem('lotus.boot'); } catch (e) { return 'n/a'; } });
   check('quality: crash flag is cleared after a healthy boot', left === null, String(left));
+  await page.close();
+}
+{
+  // a second window that boots while the first is still loading is not a crash (the first one's Web Lock is still held)
+  const a = await browser.newPage();
+  await a.setViewport({ width: 800, height: 500, deviceScaleFactor: 1 });
+  await a.evaluateOnNewDocument(`try { localStorage.clear(); sessionStorage.clear(); } catch (e) {}`);
+  a.goto(`${base}/`, { waitUntil: 'domcontentloaded' }).catch(() => {});
+  await sleep(1200);
+  const { page: b } = await open(`${base}/`, { clear: false });
+  const sb = await probe(b);
+  const safe = await b.evaluate(() => localStorage.getItem('lotus.safe'));
+  check('quality: a second window booting beside a loading first one is not demoted', sb.demoted === 0 && sb.tier === 'ultra' && safe === null, `tier ${sb.tier}, demoted ${sb.demoted}, safe=${safe}`);
+  await b.close();
+  await a.close();
+}
+{
+  // blocked storage (cookies off, some in-app browsers): the app still boots at Ultra and a menu pick travels in the URL
+  const blocked = `Object.defineProperty(window, 'localStorage', { get() { throw new DOMException('blocked', 'SecurityError'); } });`;
+  const { page, errors } = await open(`${base}/`, { preload: blocked });
+  const s = await probe(page);
+  check('blocked storage: boots at Ultra without errors', s.tier === 'ultra' && s.source === 'default' && errors.length === 0, `${s.tier} ${errors.slice(0, 1).join('')}`);
+  await Promise.all([
+    page.waitForNavigation({ waitUntil: 'domcontentloaded' }),
+    page.evaluate(() => document.querySelector('#menu button[data-q="low"]').click()),
+  ]);
+  await page.waitForFunction('window.__LOTUS_READY__ === true', { timeout: 120000, polling: 250 });
+  const s2 = await probe(page);
+  const search = await page.evaluate(() => location.search);
+  check('blocked storage: picking Low in the menu still works (the pick moves into the URL)', s2.tier === 'low' && s2.source === 'url' && /quality=low/.test(search), `${s2.tier} ${s2.source} ${search}`);
   await page.close();
 }
 
@@ -172,6 +210,39 @@ for (const [name, p, preload, want] of QCASES) {
   await page.close();
 }
 
+// ---- 5b. saving a picture: the toast stays clear of the lettering, the live resolution is left alone ---------------------------
+{
+  // medium keeps this quick and steady: the point is what the save does, not how slow Ultra is on this machine
+  const { page, errors } = await open(`${base}/nivashini?quality=medium`, { viewport: { width: 700, height: 460, deviceScaleFactor: 1 } });
+  await page.evaluate(() => { window.__lotus.setTime(38); window.__dl = []; const c = HTMLAnchorElement.prototype.click; HTMLAnchorElement.prototype.click = function () { if (this.download) { window.__dl.push(this.download); return; } return c.call(this); }; });
+  await sleep(3000);                                                           // let the adaptive controller settle first
+  const dpr0 = await page.evaluate(() => {
+    // trace the pixel ratio for 2.5 s from the moment the capture resolves (that is inside the controller's cooldown)
+    const p = window.__lotus.pipeline, orig = p.capture;
+    p.capture = async (...a) => {
+      try { return await orig.apply(p, a); } finally {
+        const done = performance.now();
+        window.__dprTrace = [[0, p.getDpr()]];
+        const id = setInterval(() => { const t = performance.now() - done; window.__dprTrace.push([t, p.getDpr()]); if (t > 2500) clearInterval(id); }, 100);
+      }
+    };
+    return p.getDpr();
+  });
+  await page.click('#btn-capture');
+  await page.waitForFunction('document.getElementById("toast").classList.contains("show")', { timeout: 20000, polling: 50 });
+  const geo = await page.evaluate(() => { const r = (s) => { const b = document.querySelector(s).getBoundingClientRect(); return { t: b.top, b: b.bottom }; }; return { toast: r('#toast'), title: r('.g-title'), bar: r('#bar') }; });
+  check('save picture: the toast sits below the headline and above the control bar', geo.toast.t > geo.title.b + 4 && geo.toast.b < geo.bar.t + 1, JSON.stringify(geo));
+  await page.waitForFunction('window.__dl.length > 0', { timeout: 90000, polling: 300 });
+  // The old controller read the slow capture frames as an overloaded device and dropped the resolution within 0.3 s of the save. Later
+  // changes are the controller doing its job on a machine that really got slower, so only the 2.5 s after the capture are judged.
+  await sleep(3000);
+  const trace = await page.evaluate(() => window.__dprTrace || []);
+  const lowest = trace.length ? Math.min(...trace.map(([, d]) => d)) : NaN;
+  check('save picture: the live resolution does not drop in the seconds right after a save', trace.length > 10 && lowest >= dpr0 - 1e-6, `before ${dpr0}, lowest in the next 2.5 s ${lowest} (${trace.length} samples)`);
+  check('save picture (small window): no errors', errors.length === 0, errors.slice(0, 2).join(' | '));
+  await page.close();
+}
+
 // ---- 6. phone portrait: layout --------------------------------------------------------------------------------------------
 {
   const { page, errors } = await open(`${base}/nivashini`, { viewport: { width: 390, height: 844, deviceScaleFactor: 2 }, mobile: true });
@@ -185,6 +256,31 @@ for (const [name, p, preload, want] of QCASES) {
   check('phone: lettering stays in the upper half of the screen', m.wish.b < m.vh * 0.5, `wish bottom ${Math.round(m.wish.b)} of ${m.vh}`);
   check('phone: name is large enough to read (>= 64 px)', m.nameFont >= 64, `${m.nameFont}px`);
   check('phone: no errors', errors.length === 0, errors.slice(0, 2).join(' | '));
+  await page.close();
+}
+
+// ---- 6b. long names fit the phone (dev server only: it imports the source module to rebuild the greeting) -----------------------
+const devModules = !staticHost && await fetch(`${base}/src/ui/greeting.js`).then((r) => r.ok && /javascript/.test(r.headers.get('content-type') || '')).catch(() => false);
+if (devModules) {
+  const { page, errors } = await open(`${base}/nivashini?quality=low&still=1&t=37`, { viewport: { width: 390, height: 844, deviceScaleFactor: 2 }, mobile: true });
+  const WISH = 'May this year unfold like a lotus, one petal at a time. May every morning bring you light and every evening bring you peace. Wherever life carries you, may you always find water, sun and room to bloom.';
+  for (const [name, wish] of [['Priyadarshini', ''], ['Meenakshisundaram', ''], ['Anna Lakshmi Devi', ''], ['Nivashini', WISH]]) {
+    const m = await page.evaluate(async (nm, ws) => {
+      const g = await import('/src/ui/greeting.js');
+      const gr = await g.createGreeting({ whisper: `A lotus for ${nm}`, headline: 'Happy Birthday', name: nm, wish: ws || 'May this year unfold like a lotus, one petal at a time.' }, {});
+      await gr.ready;
+      gr.update({ bloom: 1, rise: 1 });
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      const ink = (s) => { const r = document.createRange(); r.selectNodeContents(document.querySelector(s)); const b = r.getBoundingClientRect(); return { l: b.left, r: b.right }; };
+      const box = (s) => { const b = document.querySelector(s).getBoundingClientRect(); return { l: b.left, r: b.right, b: b.bottom }; };
+      return { vw: innerWidth, vh: innerHeight, name: ink('.g-name'), title: box('.g-title'), wish: box('.g-wish'), wishFs: parseFloat(getComputedStyle(document.querySelector('.g-wish')).fontSize), hs: document.documentElement.scrollWidth > innerWidth + 1 };
+    }, name, wish);
+    const fits = m.name.l >= 2 && m.name.r <= m.vw - 2;
+    const centred = Math.abs((m.title.l + m.title.r) / 2 - m.vw / 2) <= 6 && Math.abs((m.wish.l + m.wish.r) / 2 - m.vw / 2) <= 6;
+    const wishOk = m.wish.b <= m.vh * 0.42 + 2 || m.wishFs <= 12.5;
+    check(`long text on a phone: ${name}${wish ? ' with a 3-sentence wish' : ''} fits, stays centred, ends above the flower`, fits && centred && wishOk && !m.hs, JSON.stringify({ ink: [Math.round(m.name.l), Math.round(m.name.r)], vw: m.vw, wishBottom: Math.round(m.wish.b), wishFs: m.wishFs }));
+  }
+  check('long text: no errors', errors.length === 0, errors.slice(0, 2).join(' | '));
   await page.close();
 }
 
@@ -216,7 +312,7 @@ await browser.close();
   try {
     const { page } = await open(`${base}/`, { br: sw, viewport: { width: 480, height: 320, deviceScaleFactor: 1 } });
     const s = await probe(page);
-    check('software WebGL (SwiftShader) starts on Low instead of Ultra', s.tier === 'low' && s.demoted >= 1, `${s.tier} demoted=${s.demoted}`);
+    check('software WebGL (SwiftShader) starts on Low instead of Ultra, and says why', s.tier === 'low' && s.demoted >= 1 && s.reason === 'software', `${s.tier} demoted=${s.demoted} reason=${s.reason}`);
     await page.close();
   } catch (e) { check('software WebGL (SwiftShader) starts on Low instead of Ultra', false, String(e.message).slice(0, 160)); }
   await sw.close();

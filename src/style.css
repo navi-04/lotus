@@ -94,7 +94,7 @@ body { position: fixed; inset: 0; }
   -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
 }
 #menu[hidden] { display: none; }
-#menu p { margin: 2px 10px 6px; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-dim); }
+#menu .menu-title { margin: 2px 10px 6px; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-dim); }
 #menu button { appearance: none; border: 0; background: transparent; color: var(--ink); text-align: left; padding: 11px 12px; border-radius: 12px; font: inherit; cursor: pointer; min-height: 44px; }
 #menu button:hover { background: rgba(255, 255, 255, 0.10); }
 #menu button[aria-checked='true'] { background: rgba(240, 140, 180, 0.22); }

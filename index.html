@@ -48,7 +48,7 @@
   <button id="btn-capture" class="ib" type="button" aria-label="Save a 4K picture" title="Save picture (C)"></button>
   <button id="btn-full" class="ib" type="button" aria-label="Full screen" title="Full screen (F)"></button>
   <div id="menu" role="menu" hidden>
-    <p>Quality</p>
+    <div class="menu-title" role="presentation">Quality</div>
     <button type="button" role="menuitemradio" data-q="ultra">Ultra <small>maximum · default</small></button>
     <button type="button" role="menuitemradio" data-q="high">High</button>
     <button type="button" role="menuitemradio" data-q="medium">Medium</button>
@@ -58,6 +58,14 @@
 </nav>
 
 <noscript><p class="fatal">This animation needs JavaScript and WebGL2.</p></noscript>
+<script>
+  // If the app never starts (files opened from disk instead of a web server, a blocked script) say so instead of spinning forever.
+  setTimeout(function () {
+    var text = document.getElementById('loader-text'), loader = document.getElementById('loader');
+    if (window.__LOTUS_READY__ || !text || (loader && loader.classList.contains('done'))) return;
+    text.textContent = 'Still loading… if nothing appears, open this page from a web server (see the README)';
+  }, 20000);
+</script>
 <script type="module" src="/src/main.js"></script>
 </body>
 </html>

@@ -243,6 +243,9 @@ async function boot() {
     },
   });
 
+  // the GPU keeps resetting and the loop breaker stopped reloading: say so instead of leaving a frozen canvas unexplained
+  window.addEventListener('lotus:context-stuck', () => ui.toast('The graphics driver keeps resetting — try Quality › Low', 9000));
+
   // ---- frame loop ------------------------------------------------------------------------------------------------------
   const hud = $('hud');
   if (params.debug && hud) hud.hidden = false;

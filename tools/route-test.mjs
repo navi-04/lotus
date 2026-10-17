@@ -168,6 +168,120 @@ for (const [name, p, preload, want] of QCASES) {
   await page.close();
 }
 
+// ---- 3b. the petals really draw: the startup probe, every way of drawing them, and the ladder that swaps one for another ------------
+// (the "?breakpetals=" test hook makes a rung's draw get dropped, like a phone GPU that refuses it; see src/lotus/petals.js)
+{
+  const petalInfo = (page) => page.evaluate(() => {
+    const L = window.__lotus, p = L.mods.petals;
+    return { rung: p.rung, info: p.info, visible: p.mesh.visible, rep: L.petalReport, stored: localStorage.getItem('lotus.petals'), shaderErrors: L.shaderErrors.length };
+  });
+  const px = (s) => (s.rep && s.rep.tried.length ? s.rep.tried[s.rep.tried.length - 1].px : 0);
+
+  const { page: p0, errors: e0 } = await open(`${base}/`);
+  const base0 = await petalInfo(p0);
+  check('petals: the default is the texture path, proven by one probe that passed, nothing remembered', base0.rung === 'tex' && base0.rep.ok && base0.rep.tried.length === 1 && px(base0) >= 40 && base0.stored === null, JSON.stringify({ rung: base0.rung, px: px(base0), stored: base0.stored }));
+  check('petals: no shader errors and no console errors on the default path', base0.shaderErrors === 0 && e0.length === 0, e0.slice(0, 2).join(' | '));
+  check('petals: desktop density is the full ultra mesh (95 x 42, over 65k vertices)', base0.info.NU === 95 && base0.info.NS === 42 && base0.info.vertices > 65535, JSON.stringify(base0.info));
+  await p0.close();
+
+  for (const r of ['tex', 'inst', 'instlite', 'cpu']) {
+    const { page, errors } = await open(`${base}/?petals=${r}`);
+    const s = await petalInfo(page);
+    check(`petals: ?petals=${r} pins that path, it draws (${px(s)} px, the default draws ${px(base0)}), no errors`,
+      s.rung === r && s.rep.forced && s.visible && px(s) >= 40 && Math.abs(px(s) - px(base0)) <= 0.12 * px(base0) && s.shaderErrors === 0 && errors.length === 0, errors.slice(0, 2).join(' | '));
+    await page.close();
+  }
+  {
+    const { page } = await open(`${base}/?petals=bogus`);
+    const s = await petalInfo(page);
+    check('petals: a junk ?petals= value is ignored', s.rung === 'tex' && !s.rep.forced, s.rung);
+    await page.close();
+  }
+
+  {
+    const { page } = await open(`${base}/?debug=1`);
+    await sleep(900);
+    const hud = await page.evaluate(() => { const h = document.getElementById('hud'); return { hidden: h.hidden, text: h.textContent }; });
+    check('petals: ?debug=1 shows the GPU, the limits, the petal path and the probe result', !hud.hidden && /petals: tex 95x42/.test(hud.text) && /probe tex=\d+px/.test(hud.text) && /varying \d+/.test(hud.text) && /shader errors: none/.test(hud.text), hud.text.split('\n').slice(3).join(' / '));
+    await page.close();
+  }
+  {
+    const { page } = await open(`${base}/`, { viewport: { width: 390, height: 844, deviceScaleFactor: 3 }, mobile: true });
+    const s = await petalInfo(page);
+    check('petals: a phone gets a lighter mesh (68 x 30, under 65k vertices, 16-bit indices)', s.info.NU === 68 && s.info.NS === 30 && s.info.vertices < 65535 && s.rep.ok, JSON.stringify(s.info));
+    await page.close();
+  }
+
+  // the ladder: a rung whose draw is dropped is replaced, the rung that worked is remembered, and a stale note is ignored
+  {
+    const { page, errors } = await open(`${base}/?breakpetals=tex`);
+    const s = await petalInfo(page);
+    check('ladder: the texture path dropped -> the instanced path takes over, and it draws', s.rung === 'inst' && s.rep.ok && s.rep.tried.map((t) => t.id).join() === 'tex,inst' && s.rep.tried[0].px === 0 && px(s) >= 40 && s.visible, JSON.stringify(s.rep && s.rep.tried));
+    check('ladder: the instanced path is remembered for next time', /^inst@\d+$/.test(s.stored || ''), String(s.stored));
+    check('ladder: a failed rung is not an error (no console errors, no shader errors)', errors.length === 0 && s.shaderErrors === 0, errors.slice(0, 2).join(' | '));
+    await page.close();
+
+    const second = await open(`${base}/`, { clear: false });          // same browser profile: the note is still there
+    const s2 = await petalInfo(second.page);
+    check('ladder: the next visit starts on the remembered rung and pays for no failed attempt', s2.rung === 'inst' && s2.rep.tried.length === 1 && s2.rep.ok, JSON.stringify(s2.rep && s2.rep.tried));
+    check('ladder: merely working does not renew the note (its week keeps running)', s2.stored === s.stored, `${s.stored} -> ${s2.stored}`);
+    await second.page.close();
+  }
+  {
+    const { page } = await open(`${base}/`, { preload: `try { localStorage.setItem('lotus.petals', 'cpu@' + (Date.now() - 8 * 864e5)); } catch (e) {}` });
+    const s = await petalInfo(page);
+    check('ladder: a note older than a week is ignored (the top rung is tried again)', s.rung === 'tex' && s.rep.tried.length === 1, s.rung);
+    await page.close();
+  }
+  {
+    const { page } = await open(`${base}/?breakpetals=tex,inst,instlite`);
+    const s = await petalInfo(page);
+    check('ladder: only the last resort left -> the CPU path takes over and draws', s.rung === 'cpu' && s.rep.ok && s.rep.tried.length === 4 && px(s) >= 40 && /^cpu@/.test(s.stored || ''), JSON.stringify({ rung: s.rung, tried: s.rep.tried.map((t) => `${t.id}:${t.px}`) }));
+    await page.close();
+  }
+  {
+    const { page, errors } = await open(`${base}/?breakpetals=tex,inst,instlite,cpu`);
+    const s = await petalInfo(page);
+    check('ladder: nothing draws -> reports failure, goes back to the original path, remembers nothing, no crash', s.rung === 'tex' && !s.rep.ok && s.rep.tried.length === 4 && s.stored === null && errors.length === 0, JSON.stringify({ rung: s.rung, ok: s.rep.ok, stored: s.stored }));
+    await page.close();
+  }
+
+  // the live-frame watch (an occlusion query around the petal draw): the flower is above the water and in view with ?rise=1
+  const watchOf = (page) => page.evaluate(() => ({ rung: window.__lotus.mods.petals.rung, w: window.__lotus.mods.petals.watchState(), stored: localStorage.getItem('lotus.petals') }));
+  const until = async (page, expr, ms) => { try { await page.waitForFunction(expr, { timeout: ms, polling: 250 }); return true; } catch (e) { return false; } };
+  {
+    const { page, errors } = await open(`${base}/?rise=1&bloom=0.6&debug=1`);
+    const seen = await until(page, `window.__lotus.mods.petals.watchState().verdict === 'seen'`, 15000);
+    const w = await watchOf(page);
+    check('watch: healthy petals are seen in the live frame, which ends the watch (and nothing is swapped or stored)', seen && w.rung === 'tex' && w.w.positives >= 1 && w.stored === null && errors.length === 0, JSON.stringify(w));
+    await sleep(700);
+    const hud = await page.evaluate(() => document.getElementById('hud').textContent);
+    check('watch: ?debug=1 reports the live-frame verdict', /live frame: seen/.test(hud), hud.split('\n').slice(-3).join(' / '));
+    await page.close();
+  }
+  {
+    const { page, errors } = await open(`${base}/?rise=1&bloom=0.6&breaklive=tex`);
+    const done = await until(page, `window.__lotus.mods.petals.rung === 'inst' && window.__lotus.mods.petals.watchState().verdict === 'seen'`, 60000);
+    const w = await watchOf(page);
+    check('watch: petals that pass the probe but never reach the live frame are swapped for the next rung, which is then seen', done && /^inst@\d+$/.test(w.stored || '') && errors.length === 0, JSON.stringify(w));
+    await page.close();
+  }
+  {
+    const { page } = await open(`${base}/?rise=1&bloom=0.6&breaklive=tex,inst,instlite,cpu`);
+    const done = await until(page, `window.__lotus.mods.petals.rung === 'cpu' && window.__lotus.mods.petals.watchState().verdict === 'blind'`, 120000);
+    const w = await watchOf(page);
+    check('watch: when even the last resort shows nothing it stops there, says blind, and the page keeps running', done && /^cpu@\d+$/.test(w.stored || ''), JSON.stringify(w));
+    await page.close();
+  }
+  {
+    const { page } = await open(`${base}/?rise=1&bloom=0.6&petals=tex&breaklive=tex`);
+    const done = await until(page, `window.__lotus.mods.petals.watchState().verdict === 'blind'`, 60000);
+    const w = await watchOf(page);
+    check('watch: a pinned ?petals= rung is reported blind but never swapped or remembered', done && w.rung === 'tex' && w.stored === null, JSON.stringify(w));
+    await page.close();
+  }
+}
+
 // ---- 4. the greeting reveal follows the timeline ------------------------------------------------------------------------
 {
   const { page, errors } = await open(`${base}/nivashini`);

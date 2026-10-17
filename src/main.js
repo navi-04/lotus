@@ -275,7 +275,12 @@ async function boot() {
       $('loader').classList.add('done');
       if (!frozenFromUrl && route.kind === 'bloom') setTimeout(() => ui.showTitle(), 700);
       // told the user once if a safety net (not their choice) is running a lower tier than requested
-      if (quality.demoted && quality.source !== 'url') setTimeout(() => ui.toast('Quality was lowered after a problem on this device — Quality › Ultra restores it', 7000), 1200);
+      if (quality.demoted && quality.source !== 'url') {
+        const why = quality.reason === 'software'
+          ? 'No graphics card found, so this runs on Low — Quality › Ultra overrides it'
+          : 'Quality was lowered after a problem on this device — Quality › Ultra restores it';
+        setTimeout(() => ui.toast(why, 7000), 1200);
+      }
     }
     if (rendered === 20) guard.disarm();                   // frames are flowing: this boot did not crash
     requestAnimationFrame(loop);
